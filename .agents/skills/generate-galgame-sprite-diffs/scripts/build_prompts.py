@@ -13,6 +13,61 @@ from pathlib import Path
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 SIZE = re.compile(r"^([1-9][0-9]*)x([1-9][0-9]*)$")
+REFERENCE_ROLES = {
+    "primary-character",
+    "supporting-character",
+    "detail-style",
+    "pose-only",
+}
+
+
+def normalize_references(values: object) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        raise SystemExit("character.reference_images 必须是数组")
+    if not values:
+        return []
+
+    normalized: list[dict[str, str]] = []
+    has_structured_item = any(isinstance(item, dict) for item in values)
+    explicit_primary_count = sum(
+        1
+        for item in values
+        if isinstance(item, dict) and item.get("role") == "primary-character"
+    )
+    if explicit_primary_count > 1:
+        raise SystemExit("character.reference_images 只能有一张 primary-character")
+
+    for index, item in enumerate(values):
+        if isinstance(item, str):
+            path = item.strip()
+            if not path:
+                raise SystemExit("character.reference_images 不可包含空路径")
+            if not has_structured_item:
+                role = "primary-character" if index == 0 else "supporting-character"
+            elif explicit_primary_count == 0 and not normalized:
+                role = "primary-character"
+            else:
+                role = "supporting-character"
+            normalized.append({"path": path, "role": role, "note": ""})
+            continue
+
+        if not isinstance(item, dict):
+            raise SystemExit("character.reference_images 的条目必须是路径字符串或角色对象")
+        path = str(item.get("path", "")).strip()
+        role = str(item.get("role", "")).strip()
+        note = str(item.get("note", "")).strip()
+        if not path:
+            raise SystemExit("结构化参考图缺少 path")
+        if role not in REFERENCE_ROLES:
+            raise SystemExit(f"不支持的参考图 role: {role}")
+        normalized.append({"path": path, "role": role, "note": note})
+
+    primary_count = sum(item["role"] == "primary-character" for item in normalized)
+    if primary_count != 1:
+        raise SystemExit(
+            "有参考图时必须且只能指定一张 primary-character；旧式纯路径数组默认第一张为主参考"
+        )
+    return normalized
 
 
 def load_config(path: Path) -> dict:
@@ -28,7 +83,9 @@ def load_config(path: Path) -> dict:
     slug = data["character"].get("slug", "")
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug):
         raise SystemExit("character.slug 只能包含小写字母、数字、下划线和连字符")
-    if not data["character"].get("description", "").strip() and not data["character"].get("reference_images"):
+    references = normalize_references(data["character"].get("reference_images", []))
+    data["character"]["reference_images"] = references
+    if not data["character"].get("description", "").strip() and not references:
         raise SystemExit("须提供 character.description 或至少一张 character.reference_images")
 
     size_match = SIZE.fullmatch(data["render"].get("size", ""))
@@ -67,19 +124,50 @@ def bullet_lines(items: list[str], fallback: str) -> str:
     return "\n".join(f"- {item}" for item in cleaned) if cleaned else f"- {fallback}"
 
 
+def reference_authority_lines(references: list[dict[str, str]]) -> str:
+    if not references:
+        return "No image reference. Treat the written character description as authoritative."
+
+    role_rules = {
+        "primary-character": (
+            "PRIMARY source of truth for identity, apparent age, face geometry, head-to-body ratio, "
+            "leg-to-torso ratio, body build, costume, palette, accessories, and original drawing style"
+        ),
+        "supporting-character": (
+            "secondary view of the same character; use only to recover hidden design details and never "
+            "override the primary face, apparent age, body proportions, or silhouette"
+        ),
+        "detail-style": (
+            "rendering-detail reference only; borrow line cleanliness, eye/hair detail, and shading finish, "
+            "but not its face shape, apparent age, proportions, expression, blush, lighting, crop, or pose"
+        ),
+        "pose-only": (
+            "pose reference only; do not borrow identity, face, age, anatomy, costume, palette, or style"
+        ),
+    }
+    lines = ["Use the supplied images in this exact order and authority hierarchy:"]
+    for index, reference in enumerate(references, start=1):
+        note = f" User note: {reference['note']}" if reference["note"] else ""
+        lines.append(
+            f"- Image {index} — {reference['role']}: {role_rules[reference['role']]}.{note}"
+        )
+    lines.append(
+        "When references disagree, the primary-character image wins. Greater detail or polish in a "
+        "secondary image never grants permission to redesign or mature the character."
+    )
+    return "\n".join(lines)
+
+
 def base_prompt(config: dict, key_color: str) -> str:
     character = config["character"]
     render = config["render"]
     expression = config["expressions"][0]
-    has_refs = bool(character["reference_images"])
+    references = character["reference_images"]
+    has_refs = bool(references)
     use_case = "identity-preserve" if has_refs else "stylized-concept"
-    input_role = (
-        "The supplied character reference image(s) are authoritative for identity, costume, "
-        "palette, accessories, proportions, and drawing style. Do not copy their background or incidental pose."
-        if has_refs
-        else "No image reference. Treat the written character description as authoritative."
-    )
+    input_role = reference_authority_lines(references)
     description = character["description"].strip() or "Use the supplied character reference exactly."
+    identity_source = "primary character reference" if has_refs else "written character description"
 
     return f"""Use case: {use_case}
 Asset type: production-ready Galgame full-body standing sprite, opaque chroma-key source
@@ -88,6 +176,7 @@ Input images: {input_role}
 Primary request:
 Create exactly one canonical full-body standing sprite for this character. This will become the locked base for later facial-expression variants.
 Regardless of the reference image's original crop, pose, expression, or background, convert the character into the canonical production format below. The reference controls identity and design, not incidental presentation.
+This is a faithful reformatting task, not a beautification, redesign, age-up, or anatomy correction. Change the presentation only where required to obtain the complete standing sprite.
 
 Character description:
 {description}
@@ -98,8 +187,16 @@ Style:
 Pose:
 {render['pose'].strip()}
 
+Identity, apparent-age, and proportion lock — higher priority than pose and polish:
+- Preserve the {identity_source}'s exact apparent age and youthful or mature impression. Never make the character look older, more adult, or more mature than that source.
+- Preserve face geometry and feature scale: face outline, cheek fullness, jaw/chin roundness, forehead, eye size and spacing, nose scale, and mouth scale. Do not lengthen or narrow the face, sharpen the jaw, reduce the eyes, or otherwise mature the facial structure.
+- Preserve the original stylized head-to-body ratio, shoulder width, torso length, hip width, limb thickness, and leg-to-torso ratio. Do not make the character taller, slimmer, longer-necked, smaller-headed, or longer-legged.
+- A standard standing pose changes only pose, crop, and completion of occluded regions. It must not normalize the character toward realistic anatomy, adult fashion-model proportions, or a generic modern anime body template.
+- Do not infer height from how much of the source canvas the character occupies. Read proportions from the character's own head and body instead.
+- If cropped or occluded areas make proportions uncertain, use the most compact interpretation consistent with the authoritative face, visible anatomy, and original Japanese anime style. Never resolve ambiguity by aging the character up or extending the legs.
+
 Canonicalization requirements:
-- Use natural equal-proportion full-body anatomy, not chibi or super-deformed proportions unless the character design itself requires it.
+- Retain the {identity_source}'s own stylized anatomy exactly; do not convert either to or from chibi, petite, youthful, tall, or mature proportions.
 - Use a calm standard standing pose facing forward or only very slightly three-quarter.
 - Keep both eyes naturally open and the mouth completely closed for the normal base.
 - If a reference is cropped, seated, in motion, turned sideways, holding a prop, or otherwise non-standard, reconstruct the missing body consistently and convert it to this standard stance.
@@ -201,6 +298,15 @@ def main() -> None:
         "state": "BASE_PENDING",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "character_slug": slug,
+        "reference_images": [
+            {
+                "image_index": index,
+                "path": reference["path"],
+                "role": reference["role"],
+                "note": reference["note"],
+            }
+            for index, reference in enumerate(config["character"]["reference_images"], start=1)
+        ],
         "key_color": key_color,
         "render": config["render"],
         "expressions": [item["id"] for item in config["expressions"]],

@@ -20,13 +20,28 @@ Never generate `smile` or `laugh` in the first stage. If the user rejects the ba
 
 ## Prepare the run
 
-Require either at least one character reference image or a character-description prompt. Label uploaded images by role:
+Require either at least one character reference image or a character-description prompt. Inspect each reference once before generation and assign an explicit role:
 
-- character reference: authoritative identity, costume, palette, accessories, and art style;
-- optional pose reference: pose only, never identity;
+- `primary-character`: the single highest-authority source for identity, apparent age, face geometry, head-to-body ratio, leg-to-torso ratio, build, costume, palette, accessories, and art style;
+- `supporting-character`: another view of the same character used only to recover hidden details;
+- `detail-style`: linework, eye/hair detail, and shading finish only; never face shape, age, anatomy, expression, blush, lighting, crop, or pose;
+- `pose-only`: pose only, never identity or anatomy;
 - canonical edit target: the approved chroma-key normal sprite used for variants.
 
-Inspect every reference before generating. The canonical `normal` output must always be one equal-proportion full-body character in a calm standard standing pose, with the complete head, hair, accessories, and both shoes visible, arms relaxed, hands visible, both eyes open, and the mouth fully closed. Treat the source pose, crop, gesture, expression, props, and background as incidental. If the input is seated, cropped, action-oriented, side-facing, chibi, occluded, or otherwise non-standard, reconstruct and convert it to this format while preserving identity, costume, palette, accessories, proportions, and drawing style.
+When the config uses the legacy array of plain paths, treat the first image as `primary-character` and later images as `supporting-character`. For precise multi-reference work, use role objects in the same order passed to image generation:
+
+```json
+"reference_images": [
+  {"path": "character-sheet.png", "role": "primary-character"},
+  {"path": "face-detail.png", "role": "detail-style"}
+]
+```
+
+When references disagree, the primary image wins. A more detailed secondary face image may improve rendering finish but must never mature, slim, lengthen, or otherwise redesign the primary character.
+
+The canonical `normal` output must be one full-body character in a calm standard standing pose, with the complete head, hair, accessories, and both shoes visible, arms relaxed, hands visible, both eyes open, and the mouth fully closed. Treat the source pose, crop, gesture, expression, props, and background as incidental. Reconstruct non-standard inputs while preserving the primary reference's exact identity, apparent age, face shape, head size, head-to-body ratio, torso length, leg-to-torso ratio, limb thickness, costume, palette, accessories, and drawing style.
+
+Treat “standard standing pose” as a pose and framing conversion only. Never normalize anatomy toward realistic, adult, fashion-model, taller, slimmer, smaller-headed, or longer-legged proportions. Never age the character up. Do not infer height from source canvas occupancy. If cropped or occluded anatomy is ambiguous, choose the compact interpretation most consistent with the visible face, anatomy, and original Japanese anime style; never resolve ambiguity by lengthening the legs or maturing the face.
 
 Create a dedicated run directory. Start from [default-config.json](references/default-config.json), change only user-supplied or clearly inferable values, and preserve any user-listed invariants verbatim. Use a filesystem-safe `character.slug`.
 
@@ -67,7 +82,7 @@ python "$SKILL_DIR/scripts/build_prompts.py" \
 
 Use the built-in image-generation capability by default so Work/Codex does not need an API key. In Codex, route image creation and edits through the built-in `$imagegen` skill; in Work, use the available built-in image-generation tool. Only use the API adapter when the user explicitly chooses API mode. Inspect each local reference image before passing it to image generation.
 
-Issue exactly one image-generation call for the normal sprite. Use `<run>/prompts/normal.txt` as the prompt. Pass character references as references/edit inputs, not as images to reproduce wholesale. Require one full body, crown-to-shoes visibility, generous padding, no props unless identity-defining, and a perfectly flat key-color background.
+Issue exactly one image-generation call for the normal sprite. Use `<run>/prompts/normal.txt` as the prompt. Pass character references as references/edit inputs in the same order as the role-labeled config, not as images to reproduce wholesale. Require one full body, crown-to-shoes visibility, generous padding, no props unless identity-defining, and a perfectly flat key-color background.
 
 Save the opaque source as:
 
@@ -105,7 +120,7 @@ python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json base-ready \
   --final <run>/<slug>_normal.png
 ```
 
-Inspect the transparent PNG visually. Confirm identity, costume details, hands, complete body, expression, clean alpha, uncut hair/clothes, and transparent holes enclosed by hair, ribbons, arms, or clothing. Require validation to scan for opaque key-colored pixels anywhere inside the visible bounding area, not only at corners or soft edges. If validation fails, fix or regenerate before showing it.
+Use local pixel validation to confirm clean alpha, complete canvas bounds, and transparent holes enclosed by hair, ribbons, arms, or clothing. Require validation to scan for opaque key-colored pixels anywhere inside the visible bounding area, not only at corners or soft edges. In the default cost-conscious flow, do not reopen the generated result with a separate visual-model inspection; show the transparent PNG to the user, who decides identity, apparent age, face, costume, and proportions at `BASE_REVIEW`. Add targeted visual inspection only if local QA fails or the user requests it.
 
 Treat `KEY_COLOR` as the requested prompt color, not a promise of exact
 output pixels. Omit `--key-color` during cutout so the script samples the
@@ -126,7 +141,7 @@ python "$SKILL_DIR/scripts/sprite_tools.py" rekey \
 
 Use that derived opaque file as the variant edit target and record both the original and replacement key colors. Because it is derived before normalization, continue applying `<run>/base-transform.json` to the variant cutouts as usual.
 
-Show the transparent normal sprite and summarize its configuration. Offer “生成表情差分” and “重做通常立绘” choices when the current surface supports action choices; otherwise ask the user to reply with one of those phrases. Stop and wait.
+Show the transparent normal sprite and summarize its configuration. Explicitly ask the user to check likeness, apparent age, face shape, head-to-body ratio, and leg length before approval. Any report that the character looks older, taller, slimmer, smaller-headed, or longer-legged is a base rejection: reset and regenerate `normal`; never defer that correction to expression variants. Offer “生成表情差分” and “重做通常立绘” choices when the current surface supports action choices; otherwise ask the user to reply with one of those phrases. Stop and wait.
 
 ## Generate expression variants after approval
 
