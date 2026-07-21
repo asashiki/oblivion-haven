@@ -1,0 +1,70 @@
+{
+  "$schema": "./config.schema.json",
+  "schema_version": 1,
+  "character": {
+    "slug": "character",
+    "description": "",
+    "reference_images": [],
+    "style_note": "Clean 2D visual-novel character art; when references are supplied, preserve their original drawing style.",
+    "preserve": [],
+    "avoid": []
+  },
+  "render": {
+    "size": "1024x1536",
+    "quality": "high",
+    "safe_margin_percent": 6,
+    "anchor": "bottom-center",
+    "pose": "A natural standard full-body standing pose, facing forward or very slightly three-quarter, arms relaxed and hands visible."
+  },
+  "chroma_key": {
+    "mode": "auto",
+    "preferred": "#fc5d21",
+    "candidates": [
+      "#fc5d21",
+      "#00ff66",
+      "#ff00ff",
+      "#00d9ff",
+      "#7d00ff",
+      "#fff200"
+    ],
+    "transparent_distance": 28,
+    "opaque_distance": 175,
+    "edge_radius": 2,
+    "scope": "all",
+    "soft_matte": true,
+    "despill": true
+  },
+  "expressions": [
+    {
+      "id": "normal",
+      "label": "通常（无口）",
+      "instruction": "Keep both eyes naturally open. Keep the mouth fully closed with a calm neutral expression."
+    },
+    {
+      "id": "smile",
+      "label": "微笑（轻微开口）",
+      "instruction": "Keep both eyes open. Add a gentle friendly smile with the mouth only slightly open, suitable for ordinary conversation."
+    },
+    {
+      "id": "laugh",
+      "label": "开心大笑",
+      "instruction": "Show a joyful, high-energy open smile. Curve both eyes into natural happy crescents or close them naturally from laughter."
+    }
+  ],
+  "qa": {
+    "face_box": [0.22, 0.02, 0.78, 0.24],
+    "variant_retry_limit": 1,
+    "outside_face_alpha_iou_warn_below": 0.92,
+    "outside_face_rgb_mean_warn_above": 24.0
+  },
+  "workflow": {
+    "pause_after_base": true,
+    "require_explicit_base_approval": true,
+    "generate_variants_separately": true
+  },
+  "output": {
+    "keep_chroma_sources": true,
+    "keep_working_files": true,
+    "make_contact_sheet": true
+  }
+}

@@ -1,0 +1,11 @@
+interface:
+  display_name: "Galgame 立绘差分生成器"
+  short_description: "分两阶段生成、校验并抠出高度一致的透明 Galgame 角色立绘差分"
+  default_prompt: "根据我上传的人设图或角色描述，先生成通常立绘并抠成透明 PNG；等我确认后，再生成微笑和开心大笑差分。"
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

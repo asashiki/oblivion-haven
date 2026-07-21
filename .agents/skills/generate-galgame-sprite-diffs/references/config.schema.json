@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/galgame-sprite-diffs/config.schema.json",
+  "title": "Galgame Sprite Difference Generator Config",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "character",
+    "render",
+    "chroma_key",
+    "expressions",
+    "qa",
+    "workflow",
+    "output"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": 1 },
+    "character": {
+      "type": "object",
+      "required": ["slug", "description", "reference_images", "style_note", "preserve", "avoid"],
+      "properties": {
+        "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "description": { "type": "string" },
+        "reference_images": { "type": "array", "items": { "type": "string" } },
+        "style_note": { "type": "string" },
+        "preserve": { "type": "array", "items": { "type": "string" } },
+        "avoid": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "render": {
+      "type": "object",
+      "required": ["size", "quality", "safe_margin_percent", "anchor", "pose"],
+      "properties": {
+        "size": { "type": "string", "pattern": "^[1-9][0-9]*x[1-9][0-9]*$" },
+        "quality": { "enum": ["low", "medium", "high", "auto"] },
+        "safe_margin_percent": { "type": "number", "minimum": 0, "maximum": 25 },
+        "anchor": { "enum": ["center", "bottom-center"] },
+        "pose": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "chroma_key": {
+      "type": "object",
+      "required": [
+        "mode",
+        "preferred",
+        "candidates",
+        "transparent_distance",
+        "opaque_distance",
+        "edge_radius",
+        "scope",
+        "soft_matte",
+        "despill"
+      ],
+      "properties": {
+        "mode": { "enum": ["auto", "fixed"] },
+        "preferred": { "$ref": "#/$defs/hexColor" },
+        "candidates": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/hexColor" }
+        },
+        "transparent_distance": { "type": "number", "minimum": 0, "maximum": 254 },
+        "opaque_distance": { "type": "number", "minimum": 1, "maximum": 255 },
+        "edge_radius": { "type": "integer", "minimum": 0, "maximum": 16 },
+        "scope": { "enum": ["all", "border-connected"] },
+        "soft_matte": { "type": "boolean" },
+        "despill": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "expressions": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "instruction"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "label": { "type": "string", "minLength": 1 },
+          "instruction": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "qa": {
+      "type": "object",
+      "required": [
+        "face_box",
+        "variant_retry_limit",
+        "outside_face_alpha_iou_warn_below",
+        "outside_face_rgb_mean_warn_above"
+      ],
+      "properties": {
+        "face_box": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number", "minimum": 0, "maximum": 1 }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "variant_retry_limit": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "outside_face_alpha_iou_warn_below": { "type": "number", "minimum": 0, "maximum": 1 },
+        "outside_face_rgb_mean_warn_above": { "type": "number", "minimum": 0, "maximum": 255 }
+      },
+      "additionalProperties": false
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["pause_after_base", "require_explicit_base_approval", "generate_variants_separately"],
+      "properties": {
+        "pause_after_base": { "const": true },
+        "require_explicit_base_approval": { "const": true },
+        "generate_variants_separately": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": ["keep_chroma_sources", "keep_working_files", "make_contact_sheet"],
+      "properties": {
+        "keep_chroma_sources": { "type": "boolean" },
+        "keep_working_files": { "type": "boolean" },
+        "make_contact_sheet": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    }
+  },
+  "additionalProperties": false
+}
