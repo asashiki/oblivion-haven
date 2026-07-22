@@ -22,7 +22,31 @@
       "properties": {
         "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
         "description": { "type": "string" },
-        "reference_images": { "type": "array", "items": { "type": "string" } },
+        "reference_images": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "required": ["path", "role"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1 },
+                  "role": {
+                    "enum": [
+                      "primary-character",
+                      "supporting-character",
+                      "detail-style",
+                      "pose-only"
+                    ]
+                  },
+                  "note": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
         "style_note": { "type": "string" },
         "preserve": { "type": "array", "items": { "type": "string" } },
         "avoid": { "type": "array", "items": { "type": "string" } }

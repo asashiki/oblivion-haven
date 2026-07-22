@@ -5,7 +5,7 @@
     "slug": "character",
     "description": "",
     "reference_images": [],
-    "style_note": "Clean 2D visual-novel character art; when references are supplied, preserve their original drawing style.",
+    "style_note": "Clean 2D visual-novel character art; when references are supplied, preserve their original drawing style, apparent age, facial structure, and stylized body proportions.",
     "preserve": [],
     "avoid": []
   },
