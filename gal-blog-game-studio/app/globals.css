@@ -19,8 +19,8 @@
   --purple: #b385c8;
   --danger: #d66c7d;
   --warning: #d7a85d;
-  --font-ui: var(--font-geist-sans), "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --font-mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
+  --font-ui: Inter, "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
 }
 
 * {
