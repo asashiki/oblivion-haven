@@ -1,7 +1,7 @@
 interface:
-  display_name: "Galgame 立绘差分生成器"
-  short_description: "忠实保留原角色年龄与比例，分阶段生成透明 Galgame 立绘差分"
-  default_prompt: "用 $generate-galgame-sprite-diffs 根据我上传的人设图，先忠实保留角色的脸型、视觉年龄和身体比例生成通常立绘，等我确认后再生成表情差分。"
+  display_name: "Galgame 立绘姿势与差分生成器"
+  short_description: "保留标准人设基准，分阶段生成角色姿势与七种表情差分"
+  default_prompt: "使用 $generate-galgame-sprite-diffs 根据我的人设图，先生成标准人设基准，确认后设计中性姿势组，再生成七种表情差分。"
 policy:
   products:
   - chatgpt

@@ -7,7 +7,9 @@
     "schema_version",
     "character",
     "render",
+    "pose_design",
     "chroma_key",
+    "poses",
     "expressions",
     "qa",
     "workflow",
@@ -15,7 +17,7 @@
   ],
   "properties": {
     "$schema": { "type": "string" },
-    "schema_version": { "const": 1 },
+    "schema_version": { "const": 2 },
     "character": {
       "type": "object",
       "required": ["slug", "description", "reference_images", "style_note", "preserve", "avoid"],
@@ -55,13 +57,37 @@
     },
     "render": {
       "type": "object",
-      "required": ["size", "quality", "safe_margin_percent", "anchor", "pose"],
+      "required": ["size", "quality", "safe_margin_percent", "anchor", "reference_pose"],
       "properties": {
         "size": { "type": "string", "pattern": "^[1-9][0-9]*x[1-9][0-9]*$" },
         "quality": { "enum": ["low", "medium", "high", "auto"] },
         "safe_margin_percent": { "type": "number", "minimum": 0, "maximum": 25 },
         "anchor": { "enum": ["center", "bottom-center"] },
-        "pose": { "type": "string", "minLength": 1 }
+        "reference_pose": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "pose_design": {
+      "type": "object",
+      "required": [
+        "character_traits",
+        "energy",
+        "openness",
+        "formality",
+        "shyness",
+        "gesture_amplitude",
+        "signature_gesture",
+        "forbidden_gestures"
+      ],
+      "properties": {
+        "character_traits": { "type": "array", "items": { "type": "string" } },
+        "energy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "openness": { "type": "number", "minimum": 0, "maximum": 1 },
+        "formality": { "type": "number", "minimum": 0, "maximum": 1 },
+        "shyness": { "type": "number", "minimum": 0, "maximum": 1 },
+        "gesture_amplitude": { "enum": ["very-low", "low", "medium"] },
+        "signature_gesture": { "type": "string" },
+        "forbidden_gestures": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },
@@ -96,15 +122,30 @@
       },
       "additionalProperties": false
     },
-    "expressions": {
+    "poses": {
       "type": "array",
-      "minItems": 3,
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["id", "label", "instruction"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
           "label": { "type": "string", "minLength": 1 },
+          "instruction": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "expressions": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "pose", "instruction"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "label": { "type": "string", "minLength": 1 },
+          "pose": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
           "instruction": { "type": "string", "minLength": 1 }
         },
         "additionalProperties": false
@@ -138,11 +179,21 @@
     },
     "workflow": {
       "type": "object",
-      "required": ["pause_after_base", "require_explicit_base_approval", "generate_variants_separately"],
+      "required": [
+        "pause_after_base",
+        "require_explicit_base_approval",
+        "pause_after_poses",
+        "require_explicit_pose_approval",
+        "generate_poses_separately",
+        "generate_expressions_separately"
+      ],
       "properties": {
         "pause_after_base": { "const": true },
         "require_explicit_base_approval": { "const": true },
-        "generate_variants_separately": { "const": true }
+        "pause_after_poses": { "const": true },
+        "require_explicit_pose_approval": { "const": true },
+        "generate_poses_separately": { "const": true },
+        "generate_expressions_separately": { "const": true }
       },
       "additionalProperties": false
     },

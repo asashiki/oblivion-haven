@@ -1,63 +1,97 @@
 ---
 name: generate-galgame-sprite-diffs
-description: Generate consistency-locked Galgame full-body character expression variants from uploaded character art or a character prompt, using a two-stage approval gate, flat chroma-key sources, local background removal, validation, stable naming, and an optional gpt-image-2 portability path. Use for transparent Galgame standing sprites, character expression differentials or 差分立绘, a neutral base followed by smile/laugh variants, or requests to standardize this workflow in ChatGPT Work or Codex.
+description: "Generate consistency-locked Galgame full-body character sprites through a three-stage approval flow: one standard model-reference stance, four character-aware neutral pose bases including one controlled three-quarter engaged pose, and seven basic runtime expressions mapped sparsely across those poses. Use for transparent Galgame standing sprites, pose and expression differentials or 差分立绘, age/proportion-faithful character conversion, and reusable sprite-generation workflows in ChatGPT Work or Codex."
 ---
 
 # Generate Galgame Sprite Diffs
 
-Create one approved canonical standing sprite before generating expression variants. Treat the canonical sprite—not the original loose reference—as the edit target for every later expression.
+Keep two different goals separate:
 
-## Keep the two-stage contract
+- `reference_normal` is a calm, plain, standard full-body stance used to lock identity, apparent age, proportions, costume, palette, and drawing style.
+- approved neutral pose bases provide natural acting for runtime sprites.
+
+Never delete or replace the standard reference merely because a more expressive idle pose is desirable. Generate every pose independently from the approved standard reference, then generate each facial expression independently from its assigned approved pose.
+
+## Keep the three-stage contract
 
 Use these states:
 
-1. `BASE_PENDING`: collect inputs and generate only `normal`.
-2. `BASE_REVIEW`: show the transparent normal sprite and stop.
-3. `VARIANTS_PENDING`: enter only after the user explicitly approves or chooses “生成表情差分”.
-4. `COMPLETE`: deliver `normal`, `smile`, and `laugh` plus the run manifest.
+1. `BASE_PENDING`: collect inputs and generate only `reference_normal`.
+2. `BASE_REVIEW`: show the transparent standard reference and stop.
+3. `POSES_PENDING`: enter only after explicit base approval; generate configured neutral pose bases.
+4. `POSES_REVIEW`: show the neutral pose group and stop.
+5. `EXPRESSIONS_PENDING`: enter only after explicit pose-group approval; generate configured facial expressions.
+6. `COMPLETE`: deliver the standard reference, neutral pose bases, runtime expressions, previews, and manifest.
 
-Never generate `smile` or `laugh` in the first stage. If the user rejects the base, replace the base and reset all later variants.
+Never generate poses before base approval. Never generate non-`normal` expressions before pose approval. If the user rejects the base, reset every later stage. If the user rejects only poses, keep the approved base but reset all poses and expressions.
 
 ## Prepare the run
 
-Require either at least one character reference image or a character-description prompt. Inspect each reference once before generation and assign an explicit role:
+Require at least one character reference image or a character-description prompt. Inspect each supplied reference once and assign a role:
 
-- `primary-character`: the single highest-authority source for identity, apparent age, face geometry, head-to-body ratio, leg-to-torso ratio, build, costume, palette, accessories, and art style;
+- `primary-character`: highest authority for identity, apparent age, face geometry, head-to-body ratio, leg-to-torso ratio, build, costume, palette, accessories, and art style;
 - `supporting-character`: another view of the same character used only to recover hidden details;
 - `detail-style`: linework, eye/hair detail, and shading finish only; never face shape, age, anatomy, expression, blush, lighting, crop, or pose;
-- `pose-only`: pose only, never identity or anatomy;
-- canonical edit target: the approved chroma-key normal sprite used for variants.
+- `pose-only`: pose only, never identity or anatomy.
 
-When the config uses the legacy array of plain paths, treat the first image as `primary-character` and later images as `supporting-character`. For precise multi-reference work, use role objects in the same order passed to image generation:
+When references disagree, the primary image wins. A more detailed secondary face image may improve finish but must never mature, slim, lengthen, or redesign the primary character.
 
-```json
-"reference_images": [
-  {"path": "character-sheet.png", "role": "primary-character"},
-  {"path": "face-detail.png", "role": "detail-style"}
-]
-```
+Treat the standard model-reference stance as a pose and framing conversion only. Never normalize anatomy toward realistic, adult, fashion-model, taller, slimmer, smaller-headed, or longer-legged proportions. Never age the character up. If cropped or occluded anatomy is ambiguous, choose the compact interpretation most consistent with the primary reference.
 
-When references disagree, the primary image wins. A more detailed secondary face image may improve rendering finish but must never mature, slim, lengthen, or otherwise redesign the primary character.
-
-The canonical `normal` output must be one full-body character in a calm standard standing pose, with the complete head, hair, accessories, and both shoes visible, arms relaxed, hands visible, both eyes open, and the mouth fully closed. Treat the source pose, crop, gesture, expression, props, and background as incidental. Reconstruct non-standard inputs while preserving the primary reference's exact identity, apparent age, face shape, head size, head-to-body ratio, torso length, leg-to-torso ratio, limb thickness, costume, palette, accessories, and drawing style.
-
-Treat “standard standing pose” as a pose and framing conversion only. Never normalize anatomy toward realistic, adult, fashion-model, taller, slimmer, smaller-headed, or longer-legged proportions. Never age the character up. Do not infer height from source canvas occupancy. If cropped or occluded anatomy is ambiguous, choose the compact interpretation most consistent with the visible face, anatomy, and original Japanese anime style; never resolve ambiguity by lengthening the legs or maturing the face.
-
-Create a dedicated run directory. Start from [default-config.json](references/default-config.json), change only user-supplied or clearly inferable values, and preserve any user-listed invariants verbatim. Use a filesystem-safe `character.slug`.
-
-Resolve `SKILL_DIR` to the absolute directory containing this `SKILL.md`. Use it for every bundled script or reference; do not assume the current working directory is the skill directory.
+Create a dedicated run directory. Start from [default-config.json](references/default-config.json), change only user-supplied or clearly inferable values, and preserve user-listed invariants verbatim.
 
 ```bash
 cp "$SKILL_DIR/references/default-config.json" <run>/config.json
 ```
 
-Default to a portrait `1024x1536` canvas, high quality, bottom-center anchoring, 6% safe margin, and these v1 expressions:
+Resolve `SKILL_DIR` to the directory containing this `SKILL.md`. Use it for every bundled script or reference.
 
-- `normal`: mouth closed, eyes open, calm standard stance;
-- `smile`: eyes open, gentle friendly smile, mouth slightly open;
-- `laugh`: joyful open smile, eyes curved into crescents or naturally closed.
+Default to:
 
-Choose a chroma key before writing prompts. Treat script scoring as a proposal, not the final judgment:
+- portrait `1024x1536`, high quality, bottom-center anchoring, 6% safe margin;
+- one plain standard reference stance;
+- four low-intensity neutral pose bases:
+  - `idle`: character-specific natural conversational idle;
+  - `engaged`: controlled three-quarter responding pose with a coherent body-axis and weight shift;
+  - `firm`: restrained serious or determined stance;
+  - `reserved`: inward, shy, or vulnerable body state;
+- seven runtime expressions:
+  - `normal` from `idle`;
+  - `smile` from `idle`;
+  - `laugh` from `engaged`;
+  - `angry` from `firm`;
+  - `sad` from `reserved`;
+  - `surprised` from `engaged`;
+  - `shy` from `reserved`.
+
+This produces eleven distinct images by default: one standard reference, four neutral poses, and six additional expression edits. `normal` is the approved `idle` pose itself and requires no extra image-generation call.
+
+## Design character-aware poses conservatively
+
+Populate `pose_design` using this authority order:
+
+1. explicit user personality or gesture instructions;
+2. a suitable low-intensity gesture visible in the primary reference;
+3. other reliable references explicitly supplied for the same character;
+4. conservative low-amplitude defaults.
+
+Never infer a bold personality merely from appearance. Keep `gesture_amplitude` at `low` unless the user or a reliable reference supports stronger acting. Record a suitable original hand gesture as `signature_gesture`; do not preserve an incidental action that is unsafe, prop-dependent, or unusable for conversation.
+
+Pose IDs describe reusable body states, not emotions. Do not rigidly encode “angry pose” or “shy pose” into the pose base. All pose bases keep both eyes open, mouth closed, and a calm neutral face.
+
+Use `engaged` as the one default pose that clearly changes the body axis:
+
+- turn the torso and hips about 15–25 degrees to either side;
+- keep the face only about 8–12 degrees away from frontal or lightly returned toward the viewer, with both eyes and the recognizable full face readable;
+- use a modest offset stance or weight shift plus one conversational hand gesture;
+- make the shoulders, torso, hips, skirt or coat, feet, and balance agree with the same turn; changing only the hands is not a successful three-quarter pose;
+- keep `idle`, `firm`, and `reserved` frontal or near-frontal unless stronger evidence supports another choice.
+
+Mirror the turn direction when it better preserves a signature gesture, costume detail, or readable silhouette. If the character design cannot safely support 15–25 degrees, reduce the turn rather than distorting the face or anatomy.
+
+Avoid turns beyond about 30 degrees, side profiles, jumping, arms spread wide, pointing at the viewer, or other strong gestures by default. Treat those as optional `special_pose` requests requiring explicit user intent or a pose reference.
+
+Choose a chroma key before writing prompts. Treat script scoring as a proposal:
 
 ```bash
 KEY_COLOR="$(python "$SKILL_DIR/scripts/sprite_tools.py" choose-key \
@@ -65,11 +99,7 @@ KEY_COLOR="$(python "$SKILL_DIR/scripts/sprite_tools.py" choose-key \
   --json <run>/qa/key-selection.json)"
 ```
 
-Use `#fc5d21` when there is no reference and it does not conflict with the written character palette. Otherwise choose a candidate far from the character colors. Never knowingly use a key color present in hair, eyes, skin accents, clothing, accessories, or effects.
-
-Visually veto colors that collide with small but important regions or soft edges even when their whole-image score is high. Check eyes, hair tips, translucent strands, ribbons, reflective trim, and antialiased outlines separately. If the supplied reference already has a simple flat or near-flat background that is cleanly separated from the character, prefer reusing that hue when safe; for example, keep a purple key for a blonde character with green or teal eyes instead of switching to green. Record the reason for any override in the run manifest.
-
-Build deterministic prompts and the initial manifest:
+Visually veto any color colliding with hair, eyes, skin accents, clothes, accessories, effects, or antialiased edges. Record the reason for overrides. Build deterministic prompts and the initial manifest:
 
 ```bash
 python "$SKILL_DIR/scripts/build_prompts.py" \
@@ -78,142 +108,148 @@ python "$SKILL_DIR/scripts/build_prompts.py" \
   --out <run>
 ```
 
-## Generate and review the normal sprite
+## Stage 1: generate and review the standard reference
 
-Use the built-in image-generation capability by default so Work/Codex does not need an API key. In Codex, route image creation and edits through the built-in `$imagegen` skill; in Work, use the available built-in image-generation tool. Only use the API adapter when the user explicitly chooses API mode. Inspect each local reference image before passing it to image generation.
+Use built-in image generation by default. In Codex, follow the built-in `$imagegen` skill. Use API mode only when the user explicitly chooses it.
 
-Issue exactly one image-generation call for the normal sprite. Use `<run>/prompts/normal.txt` as the prompt. Pass character references as references/edit inputs in the same order as the role-labeled config, not as images to reproduce wholesale. Require one full body, crown-to-shoes visibility, generous padding, no props unless identity-defining, and a perfectly flat key-color background.
+Issue exactly one generation call using `<run>/prompts/reference_normal.txt`. Pass role-labeled character references in the same order as the config. Require one complete character, crown-to-shoes visibility, both hands visible, a calm closed-mouth neutral face, generous padding, no incidental props, and a perfectly flat key-color background.
 
 Save the opaque source as:
 
 ```text
-<run>/source/<slug>_normal_key.png
+<run>/source/<slug>_reference_normal_key.png
 ```
 
-Keep this file. It becomes the canonical edit target after approval.
-
-Remove the key, normalize the canvas, and validate:
+Cut out, normalize, validate, and register:
 
 ```bash
 python "$SKILL_DIR/scripts/sprite_tools.py" cutout \
-  <run>/source/<slug>_normal_key.png \
-  <run>/working/<slug>_normal_cutout.png \
+  <run>/source/<slug>_reference_normal_key.png \
+  <run>/working/<slug>_reference_normal_cutout.png \
   --scope all --soft-matte --despill \
-  --json <run>/qa/normal-cutout.json
-
-OBSERVED_KEY="$(python -c \
-  'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["key_color"])' \
-  <run>/qa/normal-cutout.json)"
+  --json <run>/qa/reference-normal-cutout.json
 
 python "$SKILL_DIR/scripts/sprite_tools.py" normalize \
-  <run>/working/<slug>_normal_cutout.png \
-  <run>/<slug>_normal.png \
+  <run>/working/<slug>_reference_normal_cutout.png \
+  <run>/<slug>_reference_normal.png \
   --canvas 1024x1536 --margin-percent 6 \
-  --write-transform <run>/base-transform.json
+  --write-transform <run>/reference-transform.json
 
 python "$SKILL_DIR/scripts/sprite_tools.py" validate \
-  <run>/<slug>_normal.png --expect-size 1024x1536 \
-  --key-color "$OBSERVED_KEY" --json <run>/qa/normal.json
+  <run>/<slug>_reference_normal.png --expect-size 1024x1536 \
+  --key-color "<observed-key>" --json <run>/qa/reference-normal.json
 
 python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json base-ready \
-  --source <run>/source/<slug>_normal_key.png \
-  --final <run>/<slug>_normal.png
+  --source <run>/source/<slug>_reference_normal_key.png \
+  --final <run>/<slug>_reference_normal.png
 ```
 
-Use local pixel validation to confirm clean alpha, complete canvas bounds, and transparent holes enclosed by hair, ribbons, arms, or clothing. Require validation to scan for opaque key-colored pixels anywhere inside the visible bounding area, not only at corners or soft edges. In the default cost-conscious flow, do not reopen the generated result with a separate visual-model inspection; show the transparent PNG to the user, who decides identity, apparent age, face, costume, and proportions at `BASE_REVIEW`. Add targeted visual inspection only if local QA fails or the user requests it.
+Sample each generated source's actual border color during cutout; never assume the requested prompt color is exact. Validate the transparent output against its own observed color. Use `--scope all` so enclosed background holes also become transparent.
 
-Treat `KEY_COLOR` as the requested prompt color, not a promise of exact
-output pixels. Omit `--key-color` during cutout so the script samples the
-actual generated border color for that source. Keep the configured thresholds
-constant and record both the requested key in `manifest.json` and the observed
-key in the cutout QA report. Validate each transparent output against the
-observed key from its own cutout report. Never validate a re-keyed or separately
-generated source with the base image's requested or observed key.
+Default to local pixel QA only after generation. Do not reopen the result for a separate visual-model review unless local QA fails or the user asks. Show the transparent reference and ask the user to check likeness, apparent age, face shape, head-to-body ratio, leg length, costume, and drawing style. Any report of aging, height increase, smaller head, or longer legs is a base rejection. Stop at `BASE_REVIEW`.
 
-If a key conflict is discovered after the base is approved, keep the approved source immutable. Re-key the pre-normalization transparent cutout locally instead of asking the model to redraw or recolor the whole sprite:
+## Stage 2: generate and review neutral pose bases
+
+After explicit base approval, lock the exact previewed hashes:
 
 ```bash
-python "$SKILL_DIR/scripts/sprite_tools.py" rekey \
-  <run>/working/<slug>_normal_cutout.png \
-  <run>/source/<slug>_normal_rekey.png \
-  --key-color '<new-key>' --json <run>/qa/normal-rekey.json
+python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json approve-base
 ```
 
-Use that derived opaque file as the variant edit target and record both the original and replacement key colors. Because it is derived before normalization, continue applying `<run>/base-transform.json` to the variant cutouts as usual.
+Generate every configured pose with one separate edit call:
 
-Show the transparent normal sprite and summarize its configuration. Explicitly ask the user to check likeness, apparent age, face shape, head-to-body ratio, and leg length before approval. Any report that the character looks older, taller, slimmer, smaller-headed, or longer-legged is a base rejection: reset and regenerate `normal`; never defer that correction to expression variants. Offer “生成表情差分” and “重做通常立绘” choices when the current surface supports action choices; otherwise ask the user to reply with one of those phrases. Stop and wait.
+1. use `<run>/source/<slug>_reference_normal_key.png` as the sole edit target;
+2. use `<run>/prompts/pose_<pose>.txt`;
+3. change only body pose, hands, the configured body/face angle, weight shift, and unavoidable hair/clothing overlap;
+4. keep face neutral, apparent age, stylized proportions, costume, palette, art style, character scale, and flat key background;
+5. never derive one pose from another pose.
 
-## Generate expression variants after approval
+Use these default filenames:
 
-Use the approved opaque chroma source—not its transparent derivative—as the sole canonical edit target. Generate `smile` and `laugh` with two separate image-generation calls. Do not use `n` to make distinct expressions.
-
-First lock the exact previewed base hash:
-
-```bash
-python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json approve
+```text
+source/<slug>_normal_key.png          -> <slug>_normal.png
+source/<slug>_engaged_normal_key.png  -> <slug>_engaged_normal.png
+source/<slug>_firm_normal_key.png     -> <slug>_firm_normal.png
+source/<slug>_reserved_normal_key.png -> <slug>_reserved_normal.png
 ```
 
-For each call:
-
-1. Pass `<run>/source/<slug>_normal_key.png` as the edit target.
-2. Use the corresponding prompt under `<run>/prompts/`.
-3. Change only the requested facial expression.
-4. Lock canvas, pixel placement, pose, hands, body proportions, hair silhouette, costume seams and ornaments, accessories, linework, shading, lighting, and the exact flat key background.
-5. Save the opaque result under `<run>/source/<slug>_<expression>_key.png`.
-6. Request the same prompt key, then sample that generated source's actual border color during cutout and normalize with `<run>/base-transform.json`.
-7. Validate the result with the observed key from that expression's own cutout QA report, then compare it with the approved base outside the configured face region.
-
-Use `--scope all` for every normal and expression source so key-colored
-background islands enclosed by hair, ribbons, arms, or clothing also become
-transparent. Use `border-connected` only after the user explicitly accepts
-that the chosen key collides with a real subject color; normally choose a new
-key instead.
-
-Use:
+Cut out each pose independently. Normalize each with its own transform because its silhouette legitimately changes:
 
 ```bash
 python "$SKILL_DIR/scripts/sprite_tools.py" normalize \
-  <variant-cutout> <final-variant> \
-  --transform <run>/base-transform.json
+  <pose-cutout> <pose-final> \
+  --canvas 1024x1536 --margin-percent 6 \
+  --write-transform <run>/pose-transforms/<pose>.json
 
+python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json pose-ready \
+  --pose <pose> --source <pose-source> --final <pose-final>
+```
+
+Require local alpha, canvas, key-residue, safe-margin, and completeness checks. Do not use expression-style outside-face drift thresholds for poses because silhouette changes are intentional. Make a contact sheet containing the standard reference and all neutral poses.
+
+Show the pose group at `POSES_REVIEW`. Ask the user to check personality fit, action intensity, preserved proportions, hands, costume, and whether any pose feels generic or out of character. Confirm that `engaged` changes the complete body axis coherently without becoming a side profile or changing the face identity. Do not generate expressions yet.
+
+## Stage 3: generate expressions from approved poses
+
+After explicit pose-group approval:
+
+```bash
+python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json approve-poses
+```
+
+For every configured non-`normal` expression:
+
+1. use only its mapped approved neutral pose source as the edit target;
+2. use `<run>/prompts/expression_<expression>.txt`;
+3. change only facial expression and explicitly requested blush, moist highlights, or tears;
+4. keep canvas, placement, pose, hands, body proportions, hair silhouette, costume, linework, lighting, and flat key background unchanged;
+5. never derive an expression from another expression and never blend different pose bases;
+6. normalize with `<run>/pose-transforms/<mapped-pose>.json`;
+7. compare against the mapped approved pose outside the configured face region.
+
+```bash
 python "$SKILL_DIR/scripts/sprite_tools.py" compare \
-  <run>/<slug>_normal.png <final-variant> \
+  <mapped-pose-final> <expression-final> \
   --face-box 0.22,0.02,0.78,0.24 \
   --json <run>/qa/<expression>-drift.json
 ```
 
-Retry a failed expression once with a shorter, stricter “change only the face” prompt. Do not silently loop. If the second attempt still changes material non-face details, show the best result with the QA warning and explain the exact drift; never claim pixel-identical preservation.
+Retry a failed expression once with a shorter “change only the face” prompt. Do not silently loop. If the retry still changes material non-face details, show the best result with the exact warning.
 
 ## Deliver stable outputs
 
-Use these final names:
+Keep these default outputs:
 
 ```text
+<slug>_reference_normal.png
 <slug>_normal.png
+<slug>_engaged_normal.png
+<slug>_firm_normal.png
+<slug>_reserved_normal.png
 <slug>_smile.png
 <slug>_laugh.png
+<slug>_angry.png
+<slug>_sad.png
+<slug>_surprised.png
+<slug>_shy.png
 manifest.json
 ```
 
-Keep chroma sources and QA files inside the run directory for reproducibility. Generate an optional checkerboard contact sheet with:
+Register all seven runtime expressions. The `normal` path must hash-identically match the approved neutral pose mapped to `normal`:
 
 ```bash
-python "$SKILL_DIR/scripts/sprite_tools.py" sheet \
-  <run>/<slug>_normal.png \
-  <run>/<slug>_smile.png \
-  <run>/<slug>_laugh.png \
-  --out <run>/<slug>_expressions_preview.png
-
 python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json complete \
-  --normal <run>/<slug>_normal.png \
-  --smile <run>/<slug>_smile.png \
-  --laugh <run>/<slug>_laugh.png
+  --output normal=<run>/<slug>_normal.png \
+  --output smile=<run>/<slug>_smile.png \
+  --output laugh=<run>/<slug>_laugh.png \
+  --output angry=<run>/<slug>_angry.png \
+  --output sad=<run>/<slug>_sad.png \
+  --output surprised=<run>/<slug>_surprised.png \
+  --output shy=<run>/<slug>_shy.png
 ```
 
-Report the final paths, exact key color, canvas size, final prompt set, and any drift warnings.
+Keep chroma sources, prompt files, per-pose transforms, and QA reports for reproducibility. Deliver a pose preview and a seven-expression preview. Report exact observed key colors, canvas size, prompt set, and warnings.
 
 ## Preserve portability
 
-Keep provider calls outside prompt construction and image processing. Use [portable-architecture.md](references/portable-architecture.md) when moving the workflow into another project. Use `scripts/gpt_image2_adapter.py` only when the user explicitly chooses API mode and has `OPENAI_API_KEY`; Work/Codex stays on the built-in path by default.
-
-The bundled adapter intentionally omits `input_fidelity` for `gpt-image-2`, retains chroma keying because that model does not currently accept transparent output, and exposes a `--dry-run` mode for request inspection.
+Keep provider calls outside prompt construction, state transitions, and image processing. Read [portable-architecture.md](references/portable-architecture.md) when moving the workflow into another project. Use `scripts/gpt_image2_adapter.py` only when the user explicitly chooses API mode and has `OPENAI_API_KEY`; Work/Codex stays on the built-in path by default.

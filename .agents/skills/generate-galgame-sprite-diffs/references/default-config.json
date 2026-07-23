@@ -1,6 +1,6 @@
 {
   "$schema": "./config.schema.json",
-  "schema_version": 1,
+  "schema_version": 2,
   "character": {
     "slug": "character",
     "description": "",
@@ -14,7 +14,21 @@
     "quality": "high",
     "safe_margin_percent": 6,
     "anchor": "bottom-center",
-    "pose": "A natural standard full-body standing pose, facing forward or very slightly three-quarter, arms relaxed and hands visible."
+    "reference_pose": "A calm, plain, front-facing or nearly front-facing standard full-body model-reference stance, feet stable, arms relaxed, and both hands visible."
+  },
+  "pose_design": {
+    "character_traits": [],
+    "energy": 0.35,
+    "openness": 0.35,
+    "formality": 0.55,
+    "shyness": 0.35,
+    "gesture_amplitude": "low",
+    "signature_gesture": "",
+    "forbidden_gestures": [
+      "jumping",
+      "arms spread wide",
+      "pointing at the viewer"
+    ]
   },
   "chroma_key": {
     "mode": "auto",
@@ -34,21 +48,70 @@
     "soft_matte": true,
     "despill": true
   },
+  "poses": [
+    {
+      "id": "idle",
+      "label": "自然待机",
+      "instruction": "Create a character-specific, low-intensity conversational idle. Use relaxed asymmetry, a tiny weight shift, or the configured signature gesture; avoid a rigid model-reference stance."
+    },
+    {
+      "id": "engaged",
+      "label": "回应／交流",
+      "instruction": "Create the group's one controlled three-quarter pose for explaining or responding. Turn the torso and hips about 15–25 degrees to either side, keep the face only about 8–12 degrees away from frontal or lightly returned toward the viewer, shift the weight with a modest offset stance, and raise one hand in a conversational gesture while keeping the other closer to the body. Make the shoulders, torso, hips, skirt or coat, feet, and balance agree with the same turn; do not fake the pose by changing only the hands. Keep both eyes and the recognizable full face readable, and do not become a side profile."
+    },
+    {
+      "id": "firm",
+      "label": "坚定／认真",
+      "instruction": "Use a restrained firm stance with a stable center of gravity, subtly squared shoulders, and either one small fist near the chest or one hand resting lightly at the waist."
+    },
+    {
+      "id": "reserved",
+      "label": "内收／拘谨",
+      "instruction": "Use a restrained inward pose: shoulders slightly gathered, hands held close to the torso or lightly together, and only a subtle turn away from the viewer."
+    }
+  ],
   "expressions": [
     {
       "id": "normal",
       "label": "通常（无口）",
+      "pose": "idle",
       "instruction": "Keep both eyes naturally open. Keep the mouth fully closed with a calm neutral expression."
     },
     {
       "id": "smile",
       "label": "微笑（轻微开口）",
+      "pose": "idle",
       "instruction": "Keep both eyes open. Add a gentle friendly smile with the mouth only slightly open, suitable for ordinary conversation."
     },
     {
       "id": "laugh",
       "label": "开心大笑",
+      "pose": "engaged",
       "instruction": "Show a joyful, high-energy open smile. Curve both eyes into natural happy crescents or close them naturally from laughter."
+    },
+    {
+      "id": "angry",
+      "label": "生气",
+      "pose": "firm",
+      "instruction": "Keep both eyes open. Angle the eyebrows down toward the center and add a small closed-mouth pout or frown. Make the anger cute and clearly readable without adding symbols or effects."
+    },
+    {
+      "id": "sad",
+      "label": "悲伤",
+      "pose": "reserved",
+      "instruction": "Keep both eyes open with subtly moist highlights. Raise the inner eyebrows and add a small closed downturned mouth for a clearly sad, vulnerable expression. Do not add falling tears or effects."
+    },
+    {
+      "id": "surprised",
+      "label": "惊讶",
+      "pose": "engaged",
+      "instruction": "Open both eyes wider and change the mouth into a small round open shape. Make the surprise clear but cute, with no symbols, sweat, or motion lines."
+    },
+    {
+      "id": "shy",
+      "label": "害羞",
+      "pose": "reserved",
+      "instruction": "Add a soft warm blush across both cheeks, slightly lower or avert the eyes while keeping them open, and use a tiny hesitant closed smile. Change only the facial expression and cheek color; add no sweat or symbols."
     }
   ],
   "qa": {
@@ -60,7 +123,10 @@
   "workflow": {
     "pause_after_base": true,
     "require_explicit_base_approval": true,
-    "generate_variants_separately": true
+    "pause_after_poses": true,
+    "require_explicit_pose_approval": true,
+    "generate_poses_separately": true,
+    "generate_expressions_separately": true
   },
   "output": {
     "keep_chroma_sources": true,
