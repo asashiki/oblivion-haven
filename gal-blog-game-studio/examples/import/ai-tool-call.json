@@ -1,0 +1,13 @@
+{
+  "call": {
+    "name": "add_dialogue",
+    "arguments": {
+      "sceneId": "scene_prologue",
+      "characterId": "char_alice",
+      "expressionId": "expr_alice_shy",
+      "position": "right",
+      "text": "这句话由受约束的 AI 工具局部插入。",
+      "index": 5
+    }
+  }
+}

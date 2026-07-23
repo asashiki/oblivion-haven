@@ -1,0 +1,23 @@
+[
+  {
+    "op": "test",
+    "path": "/scenes/0/blocks/3/id",
+    "value": "b_p_1"
+  },
+  {
+    "op": "set",
+    "path": "/scenes/0/blocks/3/text",
+    "value": "欢迎回来，主人。今晚想先读哪一页？"
+  },
+  {
+    "op": "insert",
+    "path": "/scenes/0/blocks",
+    "index": 4,
+    "value": {
+      "id": "b_ai_rain",
+      "type": "narration",
+      "text": "窗外的雨声忽然变轻了。",
+      "source": "ai"
+    }
+  }
+]

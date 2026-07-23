@@ -1,0 +1,6 @@
+changeBg:tea-room-night.webp -duration=800;
+bgm:quiet-tea.ogg -volume=0.65;
+changeFigure:alice/shy.png -id=char-alice -right -enter=enter-from-right -duration=650;
+爱丽丝:主人今天回来得有些晚呢。;
+changeFigure:alice/smile.png -id=char-alice;
+爱丽丝:不过茶还温着，所以不算太晚。;
