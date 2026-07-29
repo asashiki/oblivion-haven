@@ -11,7 +11,7 @@
 | 主题 | 路由 | 说明 |
 |---|---|---|
 | VibeGame | [`asashiki/vibe-game`](https://github.com/asashiki/vibe-game) · [本地路由说明](./vibegame/) | VibeGame 的资料、代码与修改统一进入其独立仓库 |
-| Galgame 立绘差分生成器 | [Codex Skill](./.agents/skills/generate-galgame-sprite-diffs/) | 先生成并确认通常立绘，再生成微笑与大笑透明差分；包含色键抠图与漂移校验 |
+| Galgame 立绘差分生成器 | [Codex Skill](./.agents/skills/generate-galgame-sprite-diffs/) | 三动作母版、稀疏强表情及 WebGAL 口型/眨眼完整帧；局部合成保证眼嘴蒙版外像素不变 |
 | Gal Blog Game Studio | [项目目录](./gal-blog-game-studio/) · [在线版](https://gal-blog-game-studio.asashiki-5352.chatgpt.site) | AI 优先的 Story IR → WebGAL 创作、编排、预览与发布工作台 |
 
 新主题可以直接在本仓库创建同名文件夹与 `README.md`。如果主题已有独立仓库，只需保留一份简短路由说明，不要重复保存实际内容。
