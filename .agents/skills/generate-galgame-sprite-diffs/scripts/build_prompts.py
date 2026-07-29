@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build deterministic prompts and a run manifest for sprite differences."""
+"""Build deterministic prompts and a v3 sprite-difference run manifest."""
 
 from __future__ import annotations
 
@@ -13,12 +13,15 @@ from pathlib import Path
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 SIZE = re.compile(r"^([1-9][0-9]*)x([1-9][0-9]*)$")
+ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 REFERENCE_ROLES = {
     "primary-character",
     "supporting-character",
     "detail-style",
     "pose-only",
 }
+BASE_RUNTIME_STATES = ("eyes_close", "mouth_half_open", "mouth_open")
+EXTRA_RUNTIME_STATES = {"eyes_half"}
 
 
 def normalize_references(values: object) -> list[dict[str, str]]:
@@ -64,10 +67,28 @@ def normalize_references(values: object) -> list[dict[str, str]]:
 
     primary_count = sum(item["role"] == "primary-character" for item in normalized)
     if primary_count != 1:
-        raise SystemExit(
-            "有参考图时必须且只能指定一张 primary-character；旧式纯路径数组默认第一张为主参考"
-        )
+        raise SystemExit("有参考图时必须且只能指定一张 primary-character")
     return normalized
+
+
+def validate_runtime_policy(policy: object, owner: str, mask_profiles: set[str]) -> dict:
+    if not isinstance(policy, dict):
+        raise SystemExit(f"{owner}.runtime 必须是对象")
+    blink = policy.get("blink")
+    if blink not in {"dynamic", "fixed-open", "fixed-closed"}:
+        raise SystemExit(f"{owner}.runtime.blink 不受支持: {blink}")
+    if not isinstance(policy.get("mouth_sync"), bool):
+        raise SystemExit(f"{owner}.runtime.mouth_sync 必须是布尔值")
+    extras = policy.get("extra_states")
+    if not isinstance(extras, list) or len(extras) != len(set(extras)):
+        raise SystemExit(f"{owner}.runtime.extra_states 必须是无重复数组")
+    unknown = sorted(set(extras) - EXTRA_RUNTIME_STATES)
+    if unknown:
+        raise SystemExit(f"{owner}.runtime.extra_states 不受支持: {', '.join(unknown)}")
+    mask_profile = str(policy.get("mask_profile", ""))
+    if mask_profile not in mask_profiles:
+        raise SystemExit(f"{owner}.runtime.mask_profile 未对应任何姿势: {mask_profile}")
+    return policy
 
 
 def load_config(path: Path) -> dict:
@@ -76,24 +97,26 @@ def load_config(path: Path) -> dict:
     except (OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"无法读取配置 {path}: {exc}") from exc
 
-    for key in (
+    required = (
         "character",
         "render",
         "pose_design",
         "chroma_key",
         "poses",
         "expressions",
+        "runtime",
         "qa",
         "workflow",
         "output",
-    ):
+    )
+    for key in required:
         if key not in data:
             raise SystemExit(f"配置缺少字段: {key}")
-    if data.get("schema_version") != 2:
-        raise SystemExit("当前生成器要求 schema_version=2")
+    if data.get("schema_version") != 3:
+        raise SystemExit("当前生成器要求 schema_version=3")
 
     slug = data["character"].get("slug", "")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug):
+    if not ID.fullmatch(slug):
         raise SystemExit("character.slug 只能包含小写字母、数字、下划线和连字符")
     references = normalize_references(data["character"].get("reference_images", []))
     data["character"]["reference_images"] = references
@@ -108,47 +131,73 @@ def load_config(path: Path) -> dict:
         raise SystemExit("gpt-image-2 尺寸的两条边都须为 16 的倍数")
     if max(width, height) > 3840 or max(width, height) / min(width, height) > 3:
         raise SystemExit("render.size 超出 gpt-image-2 的边长或长宽比限制")
-    pixels = width * height
-    if not 655_360 <= pixels <= 8_294_400:
+    if not 655_360 <= width * height <= 8_294_400:
         raise SystemExit("render.size 的总像素须在 655360 到 8294400 之间")
 
     poses = data["poses"]
-    pose_ids = [item.get("id") for item in poses]
-    if not poses:
+    if not isinstance(poses, list) or not poses:
         raise SystemExit("poses 至少须包含一个姿势")
-    if len(pose_ids) != len(set(pose_ids)):
-        raise SystemExit("poses.id 不可重复")
-    if any(not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(pose_id or "")) for pose_id in pose_ids):
-        raise SystemExit("poses.id 只能包含小写字母、数字、下划线和连字符")
+    pose_ids = [item.get("id") for item in poses]
+    if len(pose_ids) != len(set(pose_ids)) or any(not ID.fullmatch(str(value or "")) for value in pose_ids):
+        raise SystemExit("poses.id 必须唯一且只含小写字母、数字、下划线和连字符")
+    mask_profiles = set(pose_ids)
+    for pose in poses:
+        validate_runtime_policy(pose.get("runtime"), f"pose {pose['id']}", mask_profiles)
 
     expressions = data["expressions"]
+    if not isinstance(expressions, list) or not expressions:
+        raise SystemExit("expressions 至少须包含一个表情")
     expression_ids = [item.get("id") for item in expressions]
-    if not expressions or expression_ids[0] != "normal":
-        raise SystemExit("expressions 的第一项必须是 normal")
-    if len(expression_ids) != len(set(expression_ids)):
-        raise SystemExit("expressions.id 不可重复")
-    if not {"normal", "smile", "laugh"}.issubset(expression_ids):
-        raise SystemExit("配置至少必须包含 normal、smile 和 laugh")
-    unknown_pose_mappings = [
-        item.get("pose")
-        for item in expressions
-        if item.get("pose") not in pose_ids
-    ]
-    if unknown_pose_mappings:
-        raise SystemExit(
-            "expressions.pose 引用了未配置姿势: "
-            + ", ".join(sorted(set(str(item) for item in unknown_pose_mappings)))
+    if len(expression_ids) != len(set(expression_ids)) or any(
+        not ID.fullmatch(str(value or "")) for value in expression_ids
+    ):
+        raise SystemExit("expressions.id 必须唯一且格式正确")
+    if "normal" in expression_ids:
+        raise SystemExit("normal 已由三张姿势母版承担，不应再配置独立 normal 表情")
+    if set(expression_ids) & {f"normal_{pose_id}" for pose_id in pose_ids}:
+        raise SystemExit("expressions.id 不得与 normal_<pose> 运行时 ID 冲突")
+    for expression in expressions:
+        if expression.get("pose") not in pose_ids:
+            raise SystemExit(f"表情 {expression.get('id')} 引用了未配置姿势: {expression.get('pose')}")
+        validate_runtime_policy(
+            expression.get("runtime"),
+            f"expression {expression['id']}",
+            mask_profiles,
         )
+
+    states = data["runtime"].get("states")
+    required_states = {"eyes_half", *BASE_RUNTIME_STATES}
+    if not isinstance(states, dict) or set(states) != required_states:
+        raise SystemExit("runtime.states 必须且只能包含 eyes_half、eyes_close、mouth_half_open、mouth_open")
+    if any(not str(states[state]).strip() for state in required_states):
+        raise SystemExit("runtime.states 的提示词说明不可为空")
 
     chroma = data["chroma_key"]
     if not 0 <= chroma["transparent_distance"] < chroma["opaque_distance"] <= 255:
         raise SystemExit("色键阈值须满足 0 <= transparent_distance < opaque_distance <= 255")
 
     workflow = data["workflow"]
-    if not workflow.get("pause_after_base") or not workflow.get("require_explicit_base_approval"):
-        raise SystemExit("流程必须在通常立绘后暂停并要求明确确认")
-    if not workflow.get("pause_after_poses") or not workflow.get("require_explicit_pose_approval"):
-        raise SystemExit("流程必须在姿势组后暂停并要求明确确认")
+    gates = (
+        "pause_after_base",
+        "require_explicit_base_approval",
+        "pause_after_poses",
+        "require_explicit_pose_approval",
+        "pause_after_expressions",
+        "require_explicit_expression_approval",
+        "generate_poses_separately",
+        "generate_expressions_separately",
+        "generate_runtime_states_separately",
+    )
+    if any(workflow.get(key) is not True for key in gates):
+        raise SystemExit("v3 流程的三个批准门与所有独立生成开关都必须为 true")
+
+    output = data["output"]
+    for key in ("work_dir", "deliverables_dir"):
+        value = str(output.get(key, ""))
+        if not ID.fullmatch(value):
+            raise SystemExit(f"output.{key} 必须是安全的相对目录名")
+    if output["work_dir"] == output["deliverables_dir"]:
+        raise SystemExit("work_dir 与 deliverables_dir 不可相同")
     return data
 
 
@@ -160,228 +209,195 @@ def bullet_lines(items: list[str], fallback: str) -> str:
 def reference_authority_lines(references: list[dict[str, str]]) -> str:
     if not references:
         return "No image reference. Treat the written character description as authoritative."
-
-    role_rules = {
-        "primary-character": (
-            "PRIMARY source of truth for identity, apparent age, face geometry, head-to-body ratio, "
-            "leg-to-torso ratio, body build, costume, palette, accessories, and original drawing style"
-        ),
-        "supporting-character": (
-            "secondary view of the same character; use only to recover hidden design details and never "
-            "override the primary face, apparent age, body proportions, or silhouette"
-        ),
-        "detail-style": (
-            "rendering-detail reference only; borrow line cleanliness, eye/hair detail, and shading finish, "
-            "but not its face shape, apparent age, proportions, expression, blush, lighting, crop, or pose"
-        ),
-        "pose-only": (
-            "pose reference only; do not borrow identity, face, age, anatomy, costume, palette, or style"
-        ),
+    rules = {
+        "primary-character": "PRIMARY truth for identity, age, face, proportions, costume, palette, and style",
+        "supporting-character": "same-character support only; recover hidden details without overriding the primary",
+        "detail-style": "line, eye, hair, and shading finish only; never identity, age, anatomy, crop, or pose",
+        "pose-only": "pose only; never identity, face, anatomy, costume, palette, or style",
     }
-    lines = ["Use the supplied images in this exact order and authority hierarchy:"]
+    lines = ["Use supplied images in this exact order and authority hierarchy:"]
     for index, reference in enumerate(references, start=1):
         note = f" User note: {reference['note']}" if reference["note"] else ""
-        lines.append(
-            f"- Image {index} — {reference['role']}: {role_rules[reference['role']]}.{note}"
-        )
-    lines.append(
-        "When references disagree, the primary-character image wins. Greater detail or polish in a "
-        "secondary image never grants permission to redesign or mature the character."
-    )
+        lines.append(f"- Image {index} — {reference['role']}: {rules[reference['role']]}.{note}")
+    lines.append("When references disagree, primary-character wins.")
     return "\n".join(lines)
+
+
+def common_identity_lock(config: dict) -> str:
+    character = config["character"]
+    return f"""Identity and proportion lock:
+- Preserve exact apparent age, face geometry, feature scale, head-to-body ratio, shoulder width, torso length, hip width, limb thickness, and leg-to-torso ratio.
+- Never make the character taller, slimmer, smaller-headed, longer-necked, longer-legged, older, or more mature.
+- Preserve costume geometry, palette, accessories, hair silhouette, linework, shading, and original stylized anatomy.
+{bullet_lines(character['preserve'], 'Preserve every identity-defining detail from the authoritative source.')}
+
+Avoid:
+{bullet_lines(character['avoid'], 'Avoid props, scenery, particles, cast shadows, and invented design details.')}"""
 
 
 def reference_prompt(config: dict, key_color: str) -> str:
     character = config["character"]
     render = config["render"]
-    expression = config["expressions"][0]
     references = character["reference_images"]
-    has_refs = bool(references)
-    use_case = "identity-preserve" if has_refs else "stylized-concept"
-    input_role = reference_authority_lines(references)
-    description = character["description"].strip() or "Use the supplied character reference exactly."
-    identity_source = "primary character reference" if has_refs else "written character description"
+    description = character["description"].strip() or "Use the supplied primary character reference exactly."
+    return f"""Use case: identity-preserve
+Asset type: canonical Galgame full-body model-reference sprite, opaque chroma-key source
+Input images:
+{reference_authority_lines(references)}
 
-    return f"""Use case: {use_case}
-Asset type: production-ready Galgame full-body standing sprite, opaque chroma-key source
-Input images: {input_role}
+Create exactly one canonical full-body reference sprite for this character.
+Character: {description}
+Style: {character['style_note'].strip()}
+Pose: {render['reference_pose'].strip()}
 
-Primary request:
-Create exactly one canonical full-body model-reference sprite for this character. This neutral standard stance will lock identity, apparent age, proportions, costume, palette, and rendering style for every later pose.
-Regardless of the reference image's original crop, pose, expression, or background, convert the character into the canonical production format below. The reference controls identity and design, not incidental presentation.
-This is a faithful reformatting task, not a beautification, redesign, age-up, or anatomy correction. Change the presentation only where required to obtain the complete standing sprite.
+This is a faithful pose/framing conversion, not beautification or anatomy correction.
+{common_identity_lock(config)}
 
-Character description:
-{description}
+Face and framing:
+- Keep both eyes naturally open and the mouth completely closed.
+- Show one complete character from topmost hair or accessory through both shoe soles.
+- Keep both hands, all hair tips, ribbons, and clothing edges visible.
+- Use a {render['size']} portrait canvas with about {render['safe_margin_percent']}% margin and a {render['anchor'].replace('-', ' ')} anchor.
+- No duplicate views, inset faces, charts, text, UI, watermark, or incidental prop.
 
-Style:
-{character['style_note'].strip()}
-
-Pose:
-{render['reference_pose'].strip()}
-
-Identity, apparent-age, and proportion lock — higher priority than pose and polish:
-- Preserve the {identity_source}'s exact apparent age and youthful or mature impression. Never make the character look older, more adult, or more mature than that source.
-- Preserve face geometry and feature scale: face outline, cheek fullness, jaw/chin roundness, forehead, eye size and spacing, nose scale, and mouth scale. Do not lengthen or narrow the face, sharpen the jaw, reduce the eyes, or otherwise mature the facial structure.
-- Preserve the original stylized head-to-body ratio, shoulder width, torso length, hip width, limb thickness, and leg-to-torso ratio. Do not make the character taller, slimmer, longer-necked, smaller-headed, or longer-legged.
-- A standard standing pose changes only pose, crop, and completion of occluded regions. It must not normalize the character toward realistic anatomy, adult fashion-model proportions, or a generic modern anime body template.
-- Do not infer height from how much of the source canvas the character occupies. Read proportions from the character's own head and body instead.
-- If cropped or occluded areas make proportions uncertain, use the most compact interpretation consistent with the authoritative face, visible anatomy, and original Japanese anime style. Never resolve ambiguity by aging the character up or extending the legs.
-
-Canonicalization requirements:
-- Retain the {identity_source}'s own stylized anatomy exactly; do not convert either to or from chibi, petite, youthful, tall, or mature proportions.
-- Use a calm, stable, model-reference standing pose facing forward or nearly forward.
-- Keep both eyes naturally open and the mouth completely closed for the normal base.
-- If a reference is cropped, seated, in motion, turned sideways, holding a prop, or otherwise non-standard, reconstruct the missing body consistently and convert it to this standard stance.
-- Do not preserve the reference background, cast shadow, incidental hand gesture, or incidental facial expression.
-- This deliberately plain stance is a reusable design reference, not the final conversational acting pose. Do not add personality gestures here.
-
-Expression — {expression['label']}:
-{expression['instruction'].strip()}
-
-Composition and framing:
-- Portrait canvas requested at {render['size']}.
-- Show the complete character from the topmost hair/accessory to the soles of both shoes.
-- Keep every limb, hand, hair tip, ribbon, and clothing edge inside the canvas.
-- Leave approximately {render['safe_margin_percent']}% empty safe margin on every side.
-- Anchor the character {render['anchor'].replace('-', ' ')}.
-- One character only. No duplicate views, inset faces, expression charts, text, labels, UI, or watermark.
-
-Identity invariants:
-{bullet_lines(character['preserve'], 'Preserve every identity-defining design detail visible in the references.')}
-
-Avoid:
-{bullet_lines(character['avoid'], 'Avoid props, scenery, particles, cast shadows, and newly invented costume details.')}
-
-Chroma-key background contract:
-- The entire background must be exactly one perfectly flat solid {key_color} color.
-- No gradient, texture, vignette, halo, floor plane, horizon, shadow, reflection, glow, or lighting variation in the background.
-- Do not use {key_color} anywhere on the character.
-- Keep crisp, separable edges and clean gaps between hair strands, arms, and body where visible.
+Background:
+- Exactly one flat solid {key_color}; no gradient, texture, floor, shadow, halo, glow, or reflection.
+- Do not use {key_color} on the character.
 """
 
 
 def pose_profile_lines(config: dict) -> str:
     design = config["pose_design"]
-    traits = [str(item).strip() for item in design["character_traits"] if str(item).strip()]
-    traits_line = ", ".join(traits) if traits else (
-        "No explicit personality traits supplied. Do not infer personality from appearance; "
-        "use conservative low-intensity acting."
-    )
-    signature = design["signature_gesture"].strip() or (
-        "No explicit signature gesture supplied. Use a subtle, reusable gesture rather than inventing "
-        "a dramatic character trait."
-    )
-    return f"""Character-trait evidence: {traits_line}
-Acting controls (0.0 restrained to 1.0 strong): energy={design['energy']:.2f}, openness={design['openness']:.2f}, formality={design['formality']:.2f}, shyness={design['shyness']:.2f}
+    traits = ", ".join(str(item).strip() for item in design["character_traits"] if str(item).strip())
+    traits = traits or "No explicit traits; use conservative low-intensity acting."
+    signature = design["signature_gesture"].strip() or "No explicit signature gesture."
+    return f"""Character-trait evidence: {traits}
+Controls: energy={design['energy']:.2f}, openness={design['openness']:.2f}, formality={design['formality']:.2f}, shyness={design['shyness']:.2f}
 Gesture amplitude: {design['gesture_amplitude']}
 Signature gesture: {signature}
+Preferred side-turn direction: {design['side_turn_direction']}
 Forbidden gestures:
-{bullet_lines(design['forbidden_gestures'], 'No dramatic, acrobatic, aggressive, or viewer-directed gesture.')}"""
-
-
-def normal_pose_id(config: dict) -> str:
-    return config["expressions"][0]["pose"]
+{bullet_lines(design['forbidden_gestures'], 'No dramatic or viewer-directed gesture.')}"""
 
 
 def pose_file_stem(config: dict, pose_id: str) -> str:
-    slug = config["character"]["slug"]
-    return f"{slug}_normal" if pose_id == normal_pose_id(config) else f"{slug}_{pose_id}_normal"
+    return f"{config['character']['slug']}_normal_{pose_id}"
+
+
+def expression_file_stem(config: dict, expression_id: str) -> str:
+    return f"{config['character']['slug']}_{expression_id}"
 
 
 def pose_prompt(config: dict, key_color: str, pose: dict) -> str:
-    character = config["character"]
     render = config["render"]
-    slug = character["slug"]
+    slug = config["character"]["slug"]
     return f"""Use case: identity-preserve
-Asset type: Galgame neutral pose base, opaque chroma-key source
-Input image: `{slug}_reference_normal_key.png` is the approved standard model reference and the absolute source of truth for character design.
+Asset type: Galgame neutral runtime pose base, opaque chroma-key source
+Input image: `{slug}_reference_normal_key.png`, the approved canonical reference.
 
-Primary request:
-Edit this exact approved reference sprite into the neutral “{pose['label']}” pose.
+Create the distinct neutral “{pose['label']}” runtime pose:
 {pose['instruction'].strip()}
 
-Pose-personality profile:
 {pose_profile_lines(config)}
 
-Expression lock:
-- Keep both eyes naturally open, looking generally toward the viewer.
-- Keep the mouth fully closed and the face calm and neutral.
-- Do not add blush, tears, sweat, anger, surprise, or another emotional facial cue.
-
-Identity and proportion invariants — higher priority than the requested gesture:
-- Preserve the exact apparent age, face geometry, head size, head-to-body ratio, torso length, leg-to-torso ratio, limb thickness, and overall build.
-- Preserve every costume seam, ornament, accessory, hair shape, color, line style, shading style, and identity-defining detail.
-- Change only the body pose, hand placement, configured body/face angle, weight shift, and the minimum hair/clothing overlap required by that pose.
-- When the pose instruction requests a controlled three-quarter turn, rotate the shoulders, torso, hips, skirt or coat, feet, and balance coherently. Do not simulate the turn by changing only the hands.
-- Keep both eyes and the recognizable full face readable unless the user explicitly approved a special side-profile pose.
-- Do not make the character taller, slimmer, smaller-headed, longer-necked, longer-legged, older, or more mature.
-- Do not convert chibi, petite, youthful, tall, or mature anatomy into another proportion system.
+Expression and identity:
+- Both eyes naturally open and generally directed toward the viewer.
+- Mouth fully closed; calm neutral face; no blush, tears, sweat, anger, surprise, or emotional cue.
+- Change only body pose, hand placement, body/face angle, weight shift, and unavoidable hair or clothing overlap.
+{common_identity_lock(config)}
 
 Composition:
-- Keep one complete character on the same requested {render['size']} portrait canvas.
-- Keep approximately the same overall character scale as the approved reference.
-- Show the topmost hair/accessory, both hands, both feet, and every clothing edge.
-- Keep approximately {render['safe_margin_percent']}% empty safe margin and a {render['anchor'].replace('-', ' ')} anchor.
-- No duplicate views, inset faces, text, labels, UI, props, scenery, cast shadow, or watermark.
-
-Identity invariants:
-{bullet_lines(character['preserve'], 'Preserve every identity-defining design detail from the approved reference.')}
-
-Avoid:
-{bullet_lines(character['avoid'], 'Avoid dramatic acting, newly invented costume details, and anatomy redesign.')}
-
-Chroma-key background lock:
-- Keep the entire background exactly one perfectly flat solid {key_color}.
-- No gradient, texture, floor plane, horizon, shadow, halo, glow, reflection, or background element.
-- Do not use {key_color} anywhere on the character.
-
-This is a pose-only edit from the approved standard reference, not a facial-expression edit or redesign.
+- One complete character on {render['size']}; same scale; about {render['safe_margin_percent']}% margin; {render['anchor'].replace('-', ' ')} anchor.
+- No props, scenery, shadows, duplicate views, text, UI, or watermark.
+- Flat solid {key_color} background only; do not use it on the character.
 """
 
 
 def expression_prompt(config: dict, key_color: str, expression: dict) -> str:
-    character = config["character"]
-    slug = character["slug"]
-    pose_id = expression["pose"]
-    pose_stem = pose_file_stem(config, pose_id)
+    slug = config["character"]["slug"]
+    pose_stem = pose_file_stem(config, expression["pose"])
+    policy = expression["runtime"]
     return f"""Use case: precise-object-edit
-Asset type: Galgame facial-expression difference, opaque chroma-key source
-Input image: `{pose_stem}_key.png` is the approved neutral “{pose_id}” pose base and the absolute source of truth.
+Asset type: Galgame facial-expression mother frame, opaque chroma-key source
+Input image: `{pose_stem}_key.png`, the approved neutral `{expression['pose']}` pose.
 
-Primary request:
-Edit this exact approved pose base. Change only the facial expression to “{expression['label']}”.
+Change only the facial expression to “{expression['label']}”:
 {expression['instruction'].strip()}
 
-No other change is authorized.
+Runtime mother-frame contract:
+- Blink policy: {policy['blink']}.
+- Mouth sync enabled: {str(policy['mouth_sync']).lower()}.
+- Preserve the requested emotion while using its resting or lowest-volume mouth state; this exact frame becomes the runtime default and mouthClose.
+- Do not exaggerate the mouth solely to make the emotion readable; eyes and eyebrows should carry their share.
 
 Absolute invariants:
-- Keep the exact same canvas size, character scale, pixel placement, crop, pose, hands, fingers, body proportions, and silhouette.
-- Keep the exact same face identity and proportions; change only eyelids/eyes and mouth shapes needed for the requested expression.
-- Keep all hair shapes and strands, costume geometry and seams, ornaments, accessories, colors, linework, shading, lighting, and edge placement unchanged.
-- Do not add blush, tears, symbols, motion lines, teeth, tongue, props, text, or effects unless explicitly required by the expression instruction.
-{bullet_lines(character['preserve'], 'Preserve every identity-defining design detail from the approved base.')}
-
-Chroma-key background lock:
-- Keep the entire background exactly the same perfectly flat solid {key_color}.
-- No gradient, texture, shadow, halo, glow, reflection, or new background element.
-- Do not use {key_color} anywhere on the character.
-
-This is an expression-only edit, not a redraw, redesign, alternate pose, or style reinterpretation. Never blend in another pose base.
+- Same canvas, placement, crop, pose, hands, body, silhouette, hair, costume, colors, linework, shading, lighting, and edge placement.
+- Change only eyelids, eyes, eyebrows, mouth, and explicitly requested blush or moist highlights.
+- No symbols, motion lines, props, text, effects, or newly invented details.
+- Flat solid {key_color} background only; do not use it on the character.
+{common_identity_lock(config)}
 """
 
 
-def write_text(path: Path, value: str) -> None:
+def runtime_states(policy: dict) -> list[str]:
+    result: list[str] = []
+    if policy["blink"] == "dynamic":
+        result.append("eyes_close")
+    if policy["mouth_sync"]:
+        result.extend(("mouth_half_open", "mouth_open"))
+    for state in policy["extra_states"]:
+        if state not in result:
+            result.append(state)
+    return result
+
+
+def runtime_prompt(config: dict, key_color: str, runtime_id: str, state: str) -> str:
+    instruction = config["runtime"]["states"][state]
+    region = "eyes" if state.startswith("eyes_") else "mouth"
+    pair_rule = ""
+    if state in {"mouth_half_open", "mouth_open"}:
+        pair_rule = """
+Mouth-pair rule:
+- `mouth_half_open` and `mouth_open` are neighboring speaking frames, not extremes.
+- Keep the same mouth corners, emotion, inner-mouth palette, teeth/tongue policy, and face identity.
+- `mouth_open` may be only modestly more open than `mouth_half_open`; never jump from a tiny mouth to a shout-sized mouth.
+"""
+    return f"""Use case: precise-object-edit
+Asset type: WebGAL image-sprite {region} micro-differential candidate
+Input image: the approved full-canvas rekeyed `{runtime_id}` mother frame.
+
+Change request:
+{instruction.strip()}
+{pair_rule}
+Absolute invariants:
+- Change only the requested {region} region.
+- Preserve emotion, identity, apparent age, face geometry, head angle, pose, placement, body, hair, costume, linework, shading, and palette.
+- Keep the exact {config['render']['size']} canvas and the complete character framing.
+- This is an independent edit from the approved mother frame, never from another runtime state.
+- Do not retouch, sharpen, soften, recolor, or add detail outside the requested region.
+- No symbols, effects, text, UI, watermark, props, shadows, or scenery.
+
+Background:
+- Exactly one flat solid {key_color}; no gradient, texture, halo, floor, shadow, reflection, or glow.
+- Do not use {key_color} on the character.
+
+The downstream program discards every pixel outside a locally approved {region} mask.
+"""
+
+
+def write_text(path: Path, value: str) -> str:
+    value = value.rstrip() + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value.rstrip() + "\n", encoding="utf-8")
+    path.write_text(value, encoding="utf-8")
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="生成立绘差分提示词与运行清单")
-    parser.add_argument("--config", type=Path, required=True, help="运行配置 JSON")
-    parser.add_argument("--key-color", required=True, help="最终使用的色键，例如 #fc5d21")
-    parser.add_argument("--out", type=Path, required=True, help="运行目录")
-    parser.add_argument("--force", action="store_true", help="覆盖已有提示词与初始清单")
+    parser = argparse.ArgumentParser(description="生成 v3 立绘、表情与 WebGAL 眼嘴差分提示词")
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--key-color", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
     if not HEX_COLOR.fullmatch(args.key_color):
@@ -393,108 +409,173 @@ def main() -> None:
     if manifest_path.exists() and not args.force:
         raise SystemExit(f"运行目录已有 manifest.json；如需重建请添加 --force: {out}")
 
-    for directory in ("prompts", "source", "working", "qa", "pose-transforms"):
+    work = Path(config["output"]["work_dir"])
+    deliverables = Path(config["output"]["deliverables_dir"])
+    directories = (
+        work / "prompts",
+        work / "source",
+        work / "cutouts",
+        work / "finals",
+        work / "transforms",
+        work / "masks",
+        work / "qa",
+        work / "runtime" / "sources",
+        work / "runtime" / "candidates",
+        work / "runtime" / "frames",
+        work / "runtime" / "parts",
+        deliverables / "figures",
+        deliverables / "previews",
+    )
+    for directory in directories:
         (out / directory).mkdir(parents=True, exist_ok=True)
 
-    prompts: dict[str, dict[str, str]] = {}
+    prompts: dict[str, dict] = {}
 
-    reference_key = "reference_normal"
-    reference_text = reference_prompt(config, key_color)
-    reference_path = out / "prompts" / f"{reference_key}.txt"
-    write_text(reference_path, reference_text)
-    prompts[reference_key] = {
-        "path": str(reference_path.relative_to(out)),
-        "sha256": hashlib.sha256(reference_text.encode("utf-8")).hexdigest(),
-        "kind": "reference",
-    }
+    def add_prompt(key: str, text: str, kind: str, **metadata: str) -> str:
+        path = work / "prompts" / f"{key}.txt"
+        digest = write_text(out / path, text)
+        prompts[key] = {"path": str(path), "sha256": digest, "kind": kind, **metadata}
+        return str(path)
 
+    add_prompt("reference_normal", reference_prompt(config, key_color), "reference")
     for pose in config["poses"]:
-        prompt_key = f"pose_{pose['id']}"
-        prompt = pose_prompt(config, key_color, pose)
-        prompt_path = out / "prompts" / f"{prompt_key}.txt"
-        write_text(prompt_path, prompt)
-        prompts[prompt_key] = {
-            "path": str(prompt_path.relative_to(out)),
-            "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-            "kind": "pose",
-            "pose": pose["id"],
-        }
-
-    for expression in config["expressions"][1:]:
-        prompt_key = f"expression_{expression['id']}"
-        prompt = expression_prompt(config, key_color, expression)
-        prompt_path = out / "prompts" / f"{prompt_key}.txt"
-        write_text(prompt_path, prompt)
-        prompts[prompt_key] = {
-            "path": str(prompt_path.relative_to(out)),
-            "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-            "kind": "expression",
-            "expression": expression["id"],
-            "pose": expression["pose"],
-        }
+        add_prompt(
+            f"pose_{pose['id']}",
+            pose_prompt(config, key_color, pose),
+            "pose",
+            pose=pose["id"],
+        )
+    for expression in config["expressions"]:
+        add_prompt(
+            f"expression_{expression['id']}",
+            expression_prompt(config, key_color, expression),
+            "expression",
+            expression=expression["id"],
+            pose=expression["pose"],
+        )
 
     slug = config["character"]["slug"]
-    normal_pose = normal_pose_id(config)
-    pose_files = {
-        pose["id"]: {
-            "chroma_source": f"source/{pose_file_stem(config, pose['id'])}_key.png",
-            "transparent_final": f"{pose_file_stem(config, pose['id'])}.png",
+    pose_files: dict[str, dict] = {}
+    for pose in config["poses"]:
+        stem = pose_file_stem(config, pose["id"])
+        pose_files[pose["id"]] = {
+            "chroma_source": str(work / "source" / f"{stem}_key.png"),
+            "cutout": str(work / "cutouts" / f"{stem}.png"),
+            "transparent_final": str(work / "finals" / f"{stem}.png"),
+            "transform": str(work / "transforms" / f"{pose['id']}.json"),
         }
-        for pose in config["poses"]
-    }
-    expression_files = {}
+
+    expression_files: dict[str, dict] = {}
     for expression in config["expressions"]:
-        expression_id = expression["id"]
-        if expression_id == "normal":
-            expression_files[expression_id] = {
-                "from_pose": normal_pose,
-                "chroma_source": pose_files[normal_pose]["chroma_source"],
-                "transparent_final": pose_files[normal_pose]["transparent_final"],
-                "requires_generation": False,
-            }
-        else:
-            expression_files[expression_id] = {
-                "from_pose": expression["pose"],
-                "chroma_source": f"source/{slug}_{expression_id}_key.png",
-                "transparent_final": f"{slug}_{expression_id}.png",
-                "requires_generation": True,
+        stem = expression_file_stem(config, expression["id"])
+        expression_files[expression["id"]] = {
+            "from_pose": expression["pose"],
+            "chroma_source": str(work / "source" / f"{stem}_key.png"),
+            "cutout": str(work / "cutouts" / f"{stem}.png"),
+            "transparent_final": str(work / "finals" / f"{stem}.png"),
+        }
+
+    runtime_bases: dict[str, dict] = {}
+    for pose in config["poses"]:
+        runtime_id = f"normal_{pose['id']}"
+        runtime_bases[runtime_id] = {
+            "kind": "pose",
+            "source_id": pose["id"],
+            "pose": pose["id"],
+            "label": f"通常／{pose['label']}",
+            "base_final": pose_files[pose["id"]]["transparent_final"],
+            "policy": pose["runtime"],
+        }
+    for expression in config["expressions"]:
+        runtime_bases[expression["id"]] = {
+            "kind": "expression",
+            "source_id": expression["id"],
+            "pose": expression["pose"],
+            "label": expression["label"],
+            "base_final": expression_files[expression["id"]]["transparent_final"],
+            "policy": expression["runtime"],
+        }
+
+    runtime_assets: dict[str, dict] = {}
+    for runtime_id, base in runtime_bases.items():
+        for state in runtime_states(base["policy"]):
+            asset_id = f"{runtime_id}__{state}"
+            prompt_key = f"runtime_{runtime_id}_{state}"
+            add_prompt(
+                prompt_key,
+                runtime_prompt(config, key_color, runtime_id, state),
+                "runtime",
+                runtime_id=runtime_id,
+                state=state,
+                pose=base["pose"],
+            )
+            stem = f"{slug}_{runtime_id}_{state}"
+            runtime_assets[asset_id] = {
+                "runtime_id": runtime_id,
+                "state": state,
+                "region": "eyes" if state.startswith("eyes_") else "mouth",
+                "mask_profile": base["policy"]["mask_profile"],
+                "prompt": prompts[prompt_key]["path"],
+                "rekeyed_base": str(work / "runtime" / "sources" / f"{slug}_{runtime_id}_base_key.png"),
+                "chroma_candidate": str(work / "runtime" / "sources" / f"{stem}_key.png"),
+                "transparent_candidate": str(work / "runtime" / "candidates" / f"{stem}.png"),
+                "frame": str(work / "runtime" / "frames" / f"{stem}.png"),
+                "part": str(work / "runtime" / "parts" / f"{stem}.png"),
+                "qa": str(work / "qa" / f"{stem}.json"),
             }
 
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "state": "BASE_PENDING",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "character_slug": slug,
         "reference_images": [
-            {
-                "image_index": index,
-                "path": reference["path"],
-                "role": reference["role"],
-                "note": reference["note"],
-            }
+            {"image_index": index, **reference}
             for index, reference in enumerate(config["character"]["reference_images"], start=1)
         ],
         "key_color": key_color,
         "render": config["render"],
         "pose_design": config["pose_design"],
         "poses": [item["id"] for item in config["poses"]],
-        "expressions": [
-            {"id": item["id"], "pose": item["pose"]}
-            for item in config["expressions"]
-        ],
+        "expressions": [{"id": item["id"], "pose": item["pose"]} for item in config["expressions"]],
+        "runtime_bases": runtime_bases,
+        "runtime_assets": runtime_assets,
         "prompts": prompts,
         "files": {
+            "directories": {"work": str(work), "deliverables": str(deliverables)},
             "reference_normal": {
-                "chroma_source": f"source/{slug}_reference_normal_key.png",
-                "transparent_final": f"{slug}_reference_normal.png",
+                "chroma_source": str(work / "source" / f"{slug}_reference_normal_key.png"),
+                "cutout": str(work / "cutouts" / f"{slug}_reference_normal.png"),
+                "transparent_final": str(work / "finals" / f"{slug}_reference_normal.png"),
+                "transform": str(work / "transforms" / "reference_normal.json"),
             },
             "pose_bases": pose_files,
             "expressions": expression_files,
         },
+        "runtime": config["runtime"],
         "qa": config["qa"],
+        "output": config["output"],
+        "generation_summary": {
+            "reference_calls": 1,
+            "pose_calls": len(config["poses"]),
+            "expression_calls": len(config["expressions"]),
+            "runtime_calls": len(runtime_assets),
+            "total_calls": 1 + len(config["poses"]) + len(config["expressions"]) + len(runtime_assets),
+        },
     }
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"run": str(out), "state": manifest["state"], "key_color": key_color, "prompts": prompts}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "run": str(out),
+                "state": manifest["state"],
+                "key_color": key_color,
+                "generation_summary": manifest["generation_summary"],
+                "prompt_count": len(prompts),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":
