@@ -10,6 +10,8 @@ import os
 import re
 from pathlib import Path
 
+from PIL import Image
+
 
 SIZE = re.compile(r"^([1-9][0-9]*)x([1-9][0-9]*)$")
 
@@ -74,6 +76,24 @@ def main() -> None:
     for path in [*args.image, *([args.mask] if args.mask else [])]:
         if not path.is_file():
             raise SystemExit(f"找不到输入文件: {path}")
+    if args.mask:
+        try:
+            with Image.open(args.image[0]) as image:
+                input_size = image.size
+            with Image.open(args.mask) as mask:
+                mask_size = mask.size
+                has_alpha = "A" in mask.getbands() or (
+                    mask.mode == "P" and "transparency" in mask.info
+                )
+        except OSError as exc:
+            raise SystemExit(f"无法读取编辑图或蒙版: {exc}") from exc
+        if mask_size != input_size:
+            raise SystemExit(
+                f"蒙版尺寸 {mask_size[0]}x{mask_size[1]} 与第一张编辑图 "
+                f"{input_size[0]}x{input_size[1]} 不一致"
+            )
+        if not has_alpha:
+            raise SystemExit("OpenAI 编辑蒙版必须包含 alpha 通道；透明区域表示允许编辑")
     prompt = load_prompt(args.prompt_file)
     mode = "edit" if args.image else "generate"
     summary = {
@@ -88,6 +108,7 @@ def main() -> None:
         "notes": [
             "input_fidelity is intentionally omitted for gpt-image-2",
             "transparent background is intentionally not requested; the prompt uses a chroma key",
+            "the provider result remains a candidate; local forced compositing is still required",
         ],
     }
     if args.dry_run:

@@ -11,13 +11,14 @@
     "chroma_key",
     "poses",
     "expressions",
+    "runtime",
     "qa",
     "workflow",
     "output"
   ],
   "properties": {
     "$schema": { "type": "string" },
-    "schema_version": { "const": 2 },
+    "schema_version": { "const": 3 },
     "character": {
       "type": "object",
       "required": ["slug", "description", "reference_images", "style_note", "preserve", "avoid"],
@@ -77,6 +78,7 @@
         "shyness",
         "gesture_amplitude",
         "signature_gesture",
+        "side_turn_direction",
         "forbidden_gestures"
       ],
       "properties": {
@@ -87,6 +89,7 @@
         "shyness": { "type": "number", "minimum": 0, "maximum": 1 },
         "gesture_amplitude": { "enum": ["very-low", "low", "medium"] },
         "signature_gesture": { "type": "string" },
+        "side_turn_direction": { "enum": ["auto", "left", "right"] },
         "forbidden_gestures": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
@@ -125,31 +128,55 @@
     "poses": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {
         "type": "object",
-        "required": ["id", "label", "instruction"],
+        "required": ["id", "label", "instruction", "runtime"],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "id": { "$ref": "#/$defs/id" },
           "label": { "type": "string", "minLength": 1 },
-          "instruction": { "type": "string", "minLength": 1 }
+          "instruction": { "type": "string", "minLength": 1 },
+          "runtime": { "$ref": "#/$defs/runtimePolicy" }
         },
         "additionalProperties": false
       }
     },
     "expressions": {
       "type": "array",
-      "minItems": 3,
+      "minItems": 1,
+      "uniqueItems": true,
       "items": {
         "type": "object",
-        "required": ["id", "label", "pose", "instruction"],
+        "required": ["id", "label", "pose", "instruction", "runtime"],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "id": { "$ref": "#/$defs/id" },
           "label": { "type": "string", "minLength": 1 },
-          "pose": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-          "instruction": { "type": "string", "minLength": 1 }
+          "pose": { "$ref": "#/$defs/id" },
+          "instruction": { "type": "string", "minLength": 1 },
+          "runtime": { "$ref": "#/$defs/runtimePolicy" }
         },
         "additionalProperties": false
       }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["engine", "mask_feather_px", "states"],
+      "properties": {
+        "engine": { "const": "webgal-image" },
+        "mask_feather_px": { "type": "number", "minimum": 0, "maximum": 24 },
+        "states": {
+          "type": "object",
+          "required": ["eyes_half", "eyes_close", "mouth_half_open", "mouth_open"],
+          "properties": {
+            "eyes_half": { "type": "string", "minLength": 1 },
+            "eyes_close": { "type": "string", "minLength": 1 },
+            "mouth_half_open": { "type": "string", "minLength": 1 },
+            "mouth_open": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "qa": {
       "type": "object",
@@ -157,7 +184,8 @@
         "face_box",
         "variant_retry_limit",
         "outside_face_alpha_iou_warn_below",
-        "outside_face_rgb_mean_warn_above"
+        "outside_face_rgb_mean_warn_above",
+        "runtime_min_inside_changed_pixels"
       ],
       "properties": {
         "face_box": {
@@ -173,7 +201,8 @@
         },
         "variant_retry_limit": { "type": "integer", "minimum": 0, "maximum": 3 },
         "outside_face_alpha_iou_warn_below": { "type": "number", "minimum": 0, "maximum": 1 },
-        "outside_face_rgb_mean_warn_above": { "type": "number", "minimum": 0, "maximum": 255 }
+        "outside_face_rgb_mean_warn_above": { "type": "number", "minimum": 0, "maximum": 255 },
+        "runtime_min_inside_changed_pixels": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },
@@ -184,26 +213,44 @@
         "require_explicit_base_approval",
         "pause_after_poses",
         "require_explicit_pose_approval",
+        "pause_after_expressions",
+        "require_explicit_expression_approval",
         "generate_poses_separately",
-        "generate_expressions_separately"
+        "generate_expressions_separately",
+        "generate_runtime_states_separately"
       ],
       "properties": {
         "pause_after_base": { "const": true },
         "require_explicit_base_approval": { "const": true },
         "pause_after_poses": { "const": true },
         "require_explicit_pose_approval": { "const": true },
+        "pause_after_expressions": { "const": true },
+        "require_explicit_expression_approval": { "const": true },
         "generate_poses_separately": { "const": true },
-        "generate_expressions_separately": { "const": true }
+        "generate_expressions_separately": { "const": true },
+        "generate_runtime_states_separately": { "const": true }
       },
       "additionalProperties": false
     },
     "output": {
       "type": "object",
-      "required": ["keep_chroma_sources", "keep_working_files", "make_contact_sheet"],
+      "required": [
+        "work_dir",
+        "deliverables_dir",
+        "keep_chroma_sources",
+        "keep_working_files",
+        "keep_local_parts",
+        "make_contact_sheet",
+        "make_demo_gifs"
+      ],
       "properties": {
+        "work_dir": { "$ref": "#/$defs/relativeDir" },
+        "deliverables_dir": { "$ref": "#/$defs/relativeDir" },
         "keep_chroma_sources": { "type": "boolean" },
         "keep_working_files": { "type": "boolean" },
-        "make_contact_sheet": { "type": "boolean" }
+        "keep_local_parts": { "type": "boolean" },
+        "make_contact_sheet": { "type": "boolean" },
+        "make_demo_gifs": { "type": "boolean" }
       },
       "additionalProperties": false
     }
@@ -212,6 +259,29 @@
     "hexColor": {
       "type": "string",
       "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "relativeDir": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+    },
+    "runtimePolicy": {
+      "type": "object",
+      "required": ["blink", "mouth_sync", "extra_states", "mask_profile"],
+      "properties": {
+        "blink": { "enum": ["dynamic", "fixed-open", "fixed-closed"] },
+        "mouth_sync": { "type": "boolean" },
+        "extra_states": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["eyes_half"] }
+        },
+        "mask_profile": { "$ref": "#/$defs/id" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

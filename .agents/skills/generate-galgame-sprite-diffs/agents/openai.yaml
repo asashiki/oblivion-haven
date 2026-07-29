@@ -1,11 +1,4 @@
 interface:
-  display_name: "Galgame 立绘姿势与差分生成器"
-  short_description: "保留标准人设基准，分阶段生成角色姿势与七种表情差分"
-  default_prompt: "使用 $generate-galgame-sprite-diffs 根据我的人设图，先生成标准人设基准，确认后设计中性姿势组，再生成七种表情差分。"
-policy:
-  products:
-  - chatgpt
-  - codex
-  - api
-  - atlas
-  allow_implicit_invocation: true
+  display_name: "Galgame 立绘口型与差分生成器"
+  short_description: "生成三姿势、精简表情与 WebGAL 口型眨眼完整立绘帧"
+  default_prompt: "使用 $generate-galgame-sprite-diffs 根据我的人设图，分阶段生成三种动作、精简表情及可直接用于 WebGAL 的口型与眨眼完整帧。"
