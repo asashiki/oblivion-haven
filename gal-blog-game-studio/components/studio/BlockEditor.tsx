@@ -61,6 +61,7 @@ const stageActionLabels: Record<StageBlock["action"], string> = {
   "play-bgm": "播放 / 切换 BGM",
   "stop-bgm": "停止 BGM",
   "play-sfx": "播放音效",
+  "play-video": "播放视频",
   "enter-character": "角色入场",
   "exit-character": "角色退场",
   "move-character": "移动 / 变换角色",
@@ -330,6 +331,7 @@ export function BlockEditor({ project, sceneId, onChange, onPreview }: Props) {
                     </label>
                     {selectedBlock.action.includes("background") && <label>背景<select value={selectedBlock.assetId || ""} onChange={(event) => updateBlock({ assetId: event.target.value })}>{project.assets.filter((asset) => asset.kind === "background").map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
                     {(selectedBlock.action.includes("bgm") || selectedBlock.action === "play-sfx") && <label>音频<select value={selectedBlock.assetId || ""} onChange={(event) => updateBlock({ assetId: event.target.value })}><option value="">无</option>{project.assets.filter((asset) => ["bgm", "sfx"].includes(asset.kind)).map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
+                    {selectedBlock.action === "play-video" && <label>视频<select value={selectedBlock.assetId || ""} onChange={(event) => updateBlock({ assetId: event.target.value })}><option value="">无</option>{project.assets.filter((asset) => asset.kind === "video").map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
                     {(selectedBlock.action.includes("character") || selectedBlock.action.includes("expression")) && <label>角色<select value={selectedBlock.characterId || ""} onChange={(event) => updateBlock({ characterId: event.target.value })}>{project.characters.map((character) => <option key={character.id} value={character.id}>{character.displayName}</option>)}</select></label>}
                     {["enter-character", "set-expression"].includes(selectedBlock.action) && (
                       <label>表情<select value={selectedBlock.expressionId || ""} onChange={(event) => updateBlock({ expressionId: event.target.value || undefined })}><option value="">默认表情</option>{project.characters.find((character) => character.id === selectedBlock.characterId)?.expressions.map((expression) => <option key={expression.id} value={expression.id}>{expression.name}</option>)}</select></label>
@@ -474,7 +476,11 @@ export function BlockEditor({ project, sceneId, onChange, onPreview }: Props) {
                       {selectedBlock.options.map((option, optionIndex) => (
                         <div key={option.id}>
                           <input value={option.label} onChange={(event) => updateBlock({ options: selectedBlock.options.map((item) => item.id === option.id ? { ...item, label: event.target.value } : item) })} />
-                          <select value={option.targetSceneId || ""} onChange={(event) => updateBlock({ options: selectedBlock.options.map((item) => item.id === option.id ? { ...item, targetSceneId: event.target.value || undefined, targetRouteNodeId: undefined } : item) })}><option value="">继续执行下一块</option>{project.scenes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                          <select value={option.targetBlockId || ""} onChange={(event) => updateBlock({ options: selectedBlock.options.map((item) => item.id === option.id ? { ...item, targetBlockId: event.target.value || undefined, targetSceneId: event.target.value ? undefined : item.targetSceneId, targetRouteNodeId: event.target.value ? undefined : item.targetRouteNodeId } : item) })}>
+                            <option value="">不跳到片段内部</option>
+                            {scene.blocks.filter((item) => item.id !== selectedBlock.id).map((item, index) => <option key={item.id} value={item.id}>片段内 · {index + 1} · {blockLabels[item.type]}</option>)}
+                          </select>
+                          <select value={option.targetSceneId || ""} onChange={(event) => updateBlock({ options: selectedBlock.options.map((item) => item.id === option.id ? { ...item, targetSceneId: event.target.value || undefined, targetRouteNodeId: undefined, targetBlockId: event.target.value ? undefined : item.targetBlockId } : item) })}><option value="">继续执行下一块</option>{project.scenes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
                           <input value={option.condition || ""} onChange={(event) => updateBlock({ options: selectedBlock.options.map((item) => item.id === option.id ? { ...item, condition: event.target.value || undefined } : item) })} placeholder="显示条件（可选）" />
                           <input value={option.enabledCondition || ""} onChange={(event) => updateBlock({ options: selectedBlock.options.map((item) => item.id === option.id ? { ...item, enabledCondition: event.target.value || undefined } : item) })} placeholder="可点击条件（可选）" />
                           <button onClick={() => updateBlock({ options: selectedBlock.options.filter((_, index) => index !== optionIndex) })}><Trash2 size={12} /></button>
@@ -535,7 +541,8 @@ export function BlockEditor({ project, sceneId, onChange, onPreview }: Props) {
                 )}
                 {selectedBlock.type === "jump" && (
                   <>
-                    <label>目标场景<select value={selectedBlock.targetSceneId || ""} onChange={(event) => updateBlock({ targetSceneId: event.target.value || undefined, targetRouteNodeId: undefined })}><option value="">未设置</option>{project.scenes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                    <label>片段内部目标<select value={selectedBlock.targetBlockId || ""} onChange={(event) => updateBlock({ targetBlockId: event.target.value || undefined, targetSceneId: event.target.value ? undefined : selectedBlock.targetSceneId, targetRouteNodeId: event.target.value ? undefined : selectedBlock.targetRouteNodeId })}><option value="">不使用内部跳转</option>{scene.blocks.filter((item) => item.id !== selectedBlock.id).map((item, index) => <option key={item.id} value={item.id}>{index + 1} · {blockLabels[item.type]}</option>)}</select></label>
+                    <label>外部场景<select value={selectedBlock.targetSceneId || ""} onChange={(event) => updateBlock({ targetSceneId: event.target.value || undefined, targetRouteNodeId: undefined, targetBlockId: event.target.value ? undefined : selectedBlock.targetBlockId })}><option value="">未设置</option>{project.scenes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                     <label>跳转条件<input value={selectedBlock.condition || ""} onChange={(event) => updateBlock({ condition: event.target.value || undefined })} /></label>
                   </>
                 )}

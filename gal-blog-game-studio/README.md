@@ -1,21 +1,22 @@
 # Gal Blog Game Studio
 
-面向 gal-blog 的 AI 优先 Galgame 创作、编排与发布系统。项目把 **Story IR 1.0** 作为唯一源数据，把 WebGAL 4.6.2 脚本与 Web 游戏包视为可重复生成的编译产物。人类编辑、AI 工具调用、AI 剧本导入和运行时生成都修改同一份 Story IR。
+面向 gal-blog 的 Galgame 创作、编排与发布工作台。目标体验是由 AI 承担素材选择与演出编排，但当前版本尚未接入真实模型 Provider；界面中的自动草稿与修订均明确标注为“本地规则（非 AI）”。Story IR、变量、WebGAL 指令和导出参数留在后台或“高级模式”中。
 
-[在线体验 Gal Blog Game Studio](https://gal-blog-game-studio.asashiki-5352.chatgpt.site)
+当前内置项目不是虚构资源堆出来的演示库。它只登记用户实际提供的三份素材：爱丽丝标准立绘、爱丽丝 Q 版立绘和白昼茶室背景。BGM、语音、音效以及其他表情没有文件，因此保持为空。
 
-第一版已经提供可运行的编辑器、全类型剧情块表单、角色与表情差分、资源与别名管理、项目/引擎/Bridge 设置、作者/玩家双视图叙事地图、ADV/NVL 预览、多格式与混合格式导入、Patch 撤销重做、WebGAL 编译、ZIP 导出、Terre 同步、受约束 AI 工具 API 和安全 Blog Bridge。
+发布验收样章不是再手写到默认数据中。`scripts/generate-ai-acceptance.ts` 从空章节开始，通过生产环境同一套 AI 工具 API 创建四个片段、对白、选择、分支与回环，并把生成结果和完整调用记录分别固化为 `generatedAcceptance.json` 与测试夹具。它由本轮 ChatGPT 充当模型执行，不能被误解为站内模型 Provider 已经接通。
 
-当前版本额外完成了两条实际发布链路：
+项目把 **Story IR 1.0** 作为唯一源数据，把 WebGAL 4.6.2 脚本与 Web 游戏包视为可重复生成的编译产物。简单模式、专业编辑器、工具调用、导入器和实机预览修改的是同一个项目，不存在“简单项目”和“高级项目”两套不兼容数据。
 
-- 叙事地图采用类似《月姬》路线图的纵向结构：故事沿主轴自上而下推进，同层分支向左右展开；支持一键自动竖排、自由拖动、重新连线、分支条件编辑，以及右侧场景摘要。
-- 导出包直接附带 WebGAL Terre 官方的淡入、淡出、方向入场、震动、推近、电影滤镜与冲击波预设。Studio 会把友好的 `fade` 别名、BGM 淡入淡出和 0–1 音量正确编译为 WebGAL 指令，不需要重新实现动画引擎。
+## 默认的三步创作
 
-## 当前素材边界
+1. **素材库**：可先不上传文件，先在素材助理里说明角色包、命名习惯和用途；点名已有素材时，确定性整理会形成一笔可撤销操作。支持普通文件与含 README、inventory、`webgal-manifest.json` 的完整立绘 ZIP，素材名和角色名可直接复制。角色图会扫描透明像素边界并给出默认构图，可直接拖动、缩放或切换左／中／右与胸像／腰上／膝上／全身。17 个 WebGAL Terre 常用转场、运动和滤镜作为内置演出库供 AI 调用，不要求用户补传。
+2. **故事地图**：按章节纵向组织完整可玩的“小片段”，外层可交叉细线只表示片段结束后的主干。选中片段后，右侧按真实播放顺序编辑片段内的选项组；每个选项可继续、跳到本段或别段的任意选项组、结束片段，或写入一次性记录。外层细线支持“拥有全部记录”与“一组记录至少 N 个”的进入条件。
+3. **实机试玩**：点击任意片段后，Studio 会即时编译当前 Story IR，并在 iframe 中运行官方 WebGAL 4.6.2。逐句编辑区可展开任意对白；角色、表情、站位、缩放与纵向位置都属于这一句。选项组后的第一句可按每个“继续”选项设置不同台词或立绘反应，随后自动汇合。编辑区、地图侧栏和素材详情栏都可拖动调整宽度。
 
-仓库没有附带未提交的 BGM、背景图、语音或人物表情立绘；示例工程保留资源注册、别名、缺失诊断与替换入口。转场、渐入渐出、方向入场、震动和滤镜等通用演出则随编译器提供，可直接写入导出的 WebGAL 工程。
+一个片段内部可以有多组选项、条件、短反应和返回循环。内部循环会编译成选项组标签与跳转，不会被拆成外层地图上的几十个节点；简单模式不再混入玩家地图视图。
 
-当前验收基线为 22 项核心 Story/编译/Bridge/导出/API 测试全通过，并通过 TypeScript、ESLint、生产构建、渲染测试与浏览器冷启动回归。
+“高级模式”完整保留全类型剧情块表单、WebGAL 代码、多格式导入、变量、校验、Terre、Blog Bridge 和编译导出，供需要精确控制时使用。
 
 ## 本地启动
 
@@ -42,23 +43,24 @@ npm run lint
 
 ## 核心工作流
 
-1. 在“剧本”中以剧情块精确编辑场景，或切换到 AI / Ren'Py-like 代码视图。
-2. 在“AI 创作”中粘贴 JSON、Markdown、Ren'Py-like、WebGAL、标签式或自然语言剧本。
-3. 解析器先解析资源别名并生成 Story IR；不存在的角色、表情或资源会产生诊断，不会静默写入坏路径。
-4. 在“叙事地图”中以竖向主轴连接公共线、角色线、场景故事、条件节点与多个结局；点击“自动竖排”可根据有向分支重新整理。
-5. 在“运行预览”使用内建 Story IR 模拟器，或连接本地 WebGAL Terre 实例同步真实 WebGAL 工程。
-6. 在“编译与导出”检查 WebGAL 文件、下载 `story.project.json` 或完整 Web ZIP。
+1. 在“素材库”上传素材，检查自动推断的类型与基础说明。
+2. 在“故事地图”新增一个片段，写下这一小段发生什么。
+3. 在当前版本可选择运行“本地规则草稿（非 AI）”，或进入高级模式精确编辑；没有 BGM 时项目保持静音。
+4. 切到“试玩修订”，使用官方 WebGAL 实机检查立绘构图、转场、点击和选项。
+5. 需要精确处理变量、WebGAL 指令或发布设置时再进入“高级模式”。
+6. 在高级模式的“编译与导出”下载 `story.project.json` 或完整 Web ZIP。
 
 ## 目录
 
 ```text
 app/
   api/                    Story 编译、Patch、AI 工具 API
-components/studio/        编辑器、叙事地图、运行预览
-lib/story/                Story IR、校验、导入、Patch、编译、运行时
+components/studio/        编辑器、叙事地图、WebGAL 实机预览
+lib/story/                Story IR、本地规则草稿、校验、导入、Patch、编译、运行时
+lib/webgalPreview.ts      浏览器内编译与 WebGAL 虚拟预览文件系统
 lib/integrations/         Terre 客户端与 gal-blog Bridge
+lib/localAssetStore.ts    浏览器本地素材文件存储
 docs/                     架构、协议、格式和状态说明
-examples/import/          多种 AI 输入与 Patch 示例
 ```
 
 关键文档：
@@ -72,7 +74,7 @@ examples/import/          多种 AI 输入与 Patch 示例
 
 ## API
 
-- `GET /api/example-project`：完整示例 Story IR。
+- `GET /api/example-project`：由生产 AI 工具链生成、只含三份真实素材的四片段验收 Story IR。
 - `POST /api/story/compile`：编译整个项目或单个场景。
 - `POST /api/story/patch`：应用可逆 StoryPatch。
 - `GET /api/ai-tools`：AI 工具目录。
@@ -80,7 +82,7 @@ examples/import/          多种 AI 输入与 Patch 示例
 
 ## WebGAL / Terre
 
-导出包按 WebGAL 工程结构生成 `game/config.txt`、`game/scene/start.txt`、各场景脚本与完整 `game/animation/`，不重写 WebGAL 引擎。示例项目锁定官方 `webgal-engine@4.6.2` 共享模块；`sharedEngineUrl` / `sharedEngineCssUrl` 也可改为部署包内的官方 dist 相对路径，得到不依赖编辑服务的自包含静态游戏。
+导出包按 WebGAL 工程结构生成 `game/config.txt`、`game/scene/start.txt`、各场景脚本与完整 `game/animation/`，不重写 WebGAL 引擎。Studio 的默认试玩也运行同一份编译产物，而不是另画一套“像 Galgame 的”占位 UI。示例项目锁定官方 `webgal-engine@4.6.2` 共享模块；`sharedEngineUrl` / `sharedEngineCssUrl` 也可改为部署包内的官方 dist 相对路径。
 
 导出的 `gal-blog-bridge.js` 会订阅 WebGAL 舞台变量。`blog-action` 在引擎中暂停，等待博客回传 success / failure / cancel，写回 Story 变量后再继续或跳转；带 `blog` / `ai` target 的自由输入会发出 `player-input` 消息与同名浏览器事件。
 
@@ -89,9 +91,10 @@ examples/import/          多种 AI 输入与 Patch 示例
 ## 数据与安全
 
 - 浏览器自动保存只是编辑体验；下载的 `story.project.json` 才是可移植源文件。
-- AI provider 未绑定到特定厂商。后端应把模型输出限制为 `/api/ai-tools` 工具调用或 `/api/story/patch` 操作。
+- 内置三份素材作为静态项目文件随站点提供；后来上传的素材文件保存在当前浏览器的 IndexedDB，资源说明和路径进入 Story IR。跨设备或正式发布仍应接入对象存储，或把实际文件复制进 WebGAL 资源目录。
+- 当前只有可离线验证的确定性导演规则，不是 AI。真实模型 Provider、联网推理与密钥服务尚未接入；接入后仍应把模型输出限制为导演草稿、`/api/ai-tools` 工具调用或 `/api/story/patch` 操作。
 - Blog Bridge 默认校验 `allowedOrigins`、`channel`、请求 ID 和超时。生产环境不要使用通配来源。
-- 资源注册记录路径和别名；第一版不会替你托管二进制素材，导出前仍应把实际资源文件复制到 WebGAL 对应目录。
+- Web ZIP 会读取 IndexedDB 中的真实素材二进制并写入 WebGAL 工程；任一素材读取失败会阻止导出并列出缺失项，不会只生成清单冒充完整游戏包。
 
 ## 上游边界
 

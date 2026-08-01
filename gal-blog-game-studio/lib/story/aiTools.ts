@@ -4,7 +4,9 @@ import { routeDisplayPosition, routeStoredPosition } from "./routeLayout";
 import { validateProject } from "./schema";
 import type {
   ChoiceOption,
+  Easing,
   StagePosition,
+  StageTransform,
   StoryBlock,
   StoryPatch,
   StoryProject,
@@ -40,6 +42,30 @@ function numberArg(args: Record<string, unknown>, key: string): number | undefin
   const number = Number(value);
   if (!Number.isFinite(number)) throw new Error(`AI 工具参数 ${key} 必须是数字`);
   return number;
+}
+
+const EASINGS = new Set<Easing>([
+  "linear",
+  "easeIn",
+  "easeOut",
+  "easeInOut",
+  "circIn",
+  "circOut",
+  "circInOut",
+  "backIn",
+  "backOut",
+  "backInOut",
+  "bounceIn",
+  "bounceOut",
+  "bounceInOut",
+  "anticipate",
+]);
+
+function easingArg(args: Record<string, unknown>, key: string): Easing | undefined {
+  const value = textArg(args, key, false);
+  if (!value) return undefined;
+  if (!EASINGS.has(value as Easing)) throw new Error(`AI 工具参数 ${key} 不是 WebGAL 支持的缓动类型`);
+  return value as Easing;
 }
 
 function sceneIndex(project: StoryProject, sceneId: string): number {
@@ -93,19 +119,28 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
       const chapterInsert = afterSceneId
         ? Math.max(0, project.chapters[chapter].sceneIds.indexOf(afterSceneId) + 1)
         : project.chapters[chapter].sceneIds.length;
+      const firstScene = project.scenes.length === 0;
+      const deepestY = Math.max(
+        40,
+        ...project.routeMap.nodes.map((node) => routeDisplayPosition(node, project.routeMap.layoutDirection).y),
+      );
+      const routePosition = routeStoredPosition(
+        { x: 360, y: deepestY + 170 },
+        project.routeMap.layoutDirection,
+      );
       return [
         { op: "insert", path: "/scenes", index: sceneInsert, value: scene },
         { op: "insert", path: `/chapters/${chapter}/sceneIds`, index: chapterInsert, value: id },
+        ...(firstScene ? [{ op: "set" as const, path: "/settings/startSceneId", value: id }] : []),
         {
           op: "insert",
           path: "/routeMap/nodes",
           value: {
             id: createId("route"),
-            kind: "scene",
+            kind: firstScene ? "start" : "scene",
             title: name,
             sceneId: id,
-            x: 460,
-            y: 180 + project.routeMap.nodes.length * 36,
+            ...routePosition,
             replayable: true,
           },
         },
@@ -122,6 +157,14 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
     }
     case "add_dialogue": {
       const target = sceneIndex(project, sceneId!);
+      const rawEnter = args.enter;
+      const enter = rawEnter && typeof rawEnter === "object" && !Array.isArray(rawEnter)
+        ? {
+            name: textArg(rawEnter as Record<string, unknown>, "name")!,
+            durationMs: numberArg(rawEnter as Record<string, unknown>, "durationMs"),
+            easing: easingArg(rawEnter as Record<string, unknown>, "easing"),
+          }
+        : undefined;
       const block: StoryBlock = {
         id: createId("dialogue"),
         type: "dialogue",
@@ -129,6 +172,7 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
         text: textArg(args, "text")!,
         expressionId: textArg(args, "expressionId", false),
         position: textArg(args, "position", false) as StagePosition | undefined,
+        enter,
         source: "ai",
       };
       return insertBlock(project, sceneId!, block, insertionIndex(args, project.scenes[target].blocks.length));
@@ -155,6 +199,36 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
       }
       return operations;
     }
+    case "enter_character":
+    case "exit_character":
+    case "move_character": {
+      const target = sceneIndex(project, sceneId!);
+      const action = call.name === "enter_character"
+        ? "enter-character"
+        : call.name === "exit_character"
+          ? "exit-character"
+          : "move-character";
+      const transitionName = textArg(args, "transition", false);
+      const block: StoryBlock = {
+        id: createId("stage"),
+        type: "stage",
+        action,
+        characterId: textArg(args, "characterId")!,
+        expressionId: textArg(args, "expressionId", false),
+        position: textArg(args, "position", false) as StagePosition | undefined,
+        transform: args.transform && typeof args.transform === "object"
+          ? args.transform as StageTransform
+          : undefined,
+        transition: transitionName ? {
+          name: transitionName,
+          durationMs: numberArg(args, "durationMs"),
+          easing: easingArg(args, "easing"),
+        } : undefined,
+        durationMs: numberArg(args, "durationMs"),
+        source: "ai",
+      };
+      return insertBlock(project, sceneId!, block, insertionIndex(args, project.scenes[target].blocks.length));
+    }
     case "set_background":
     case "set_bgm": {
       const target = sceneIndex(project, sceneId!);
@@ -164,9 +238,58 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
         action: call.name === "set_background" ? "set-background" : "play-bgm",
         assetId: textArg(args, "assetId")!,
         transition: call.name === "set_background" ? { name: "enter", durationMs: 500 } : undefined,
+        volume: numberArg(args, "volume"),
         source: "ai",
       };
       return insertBlock(project, sceneId!, block, insertionIndex(args, project.scenes[target].blocks.length));
+    }
+    case "stop_bgm":
+    case "play_sfx":
+    case "play_video":
+    case "set_stage_animation":
+    case "wait": {
+      const target = sceneIndex(project, sceneId!);
+      const action = call.name === "stop_bgm"
+        ? "stop-bgm"
+        : call.name === "play_sfx"
+          ? "play-sfx"
+          : call.name === "play_video"
+            ? "play-video"
+            : call.name === "set_stage_animation"
+              ? "transition"
+              : "wait";
+      const block: StoryBlock = {
+        id: createId("stage"),
+        type: "stage",
+        action,
+        assetId: textArg(args, "assetId", false),
+        animationTarget: textArg(args, "target", false),
+        transition: call.name === "set_stage_animation" ? { name: textArg(args, "animation")! } : undefined,
+        volume: numberArg(args, "volume"),
+        durationMs: numberArg(args, "durationMs"),
+        source: "ai",
+      };
+      return insertBlock(project, sceneId!, block, insertionIndex(args, project.scenes[target].blocks.length));
+    }
+    case "set_text_mode": {
+      const target = sceneIndex(project, sceneId!);
+      const mode = textArg(args, "mode") === "nvl" ? "nvl" : "adv";
+      return insertBlock(project, sceneId!, {
+        id: createId("mode"),
+        type: "mode",
+        mode,
+        source: "ai",
+      }, insertionIndex(args, project.scenes[target].blocks.length));
+    }
+    case "set_voice": {
+      const target = blockIndex(project, sceneId!, textArg(args, "blockId")!);
+      const block = project.scenes[target.scene].blocks[target.block];
+      if (block.type !== "dialogue") throw new Error("set_voice 只能绑定对白块");
+      return [{
+        op: "set",
+        path: `/scenes/${target.scene}/blocks/${target.block}/voiceAssetId`,
+        value: textArg(args, "voiceAssetId")!,
+      }];
     }
     case "add_choice": {
       const target = sceneIndex(project, sceneId!);
@@ -176,6 +299,9 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
         label: String(option.label || "未命名选项"),
         targetSceneId: typeof option.targetSceneId === "string" ? option.targetSceneId : undefined,
         targetRouteNodeId: typeof option.targetRouteNodeId === "string" ? option.targetRouteNodeId : undefined,
+        targetChoiceGroupId: typeof option.targetChoiceGroupId === "string" ? option.targetChoiceGroupId : undefined,
+        endScene: option.endScene === true || undefined,
+        recordId: typeof option.recordId === "string" ? option.recordId : undefined,
         condition: typeof option.condition === "string" ? option.condition : undefined,
         enabledCondition: typeof option.enabledCondition === "string" ? option.enabledCondition : undefined,
         operations: Array.isArray(option.operations) ? option.operations as VariableOperation[] : undefined,
@@ -183,6 +309,7 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
       return insertBlock(project, sceneId!, {
         id: createId("choice"),
         type: "choice",
+        groupCode: textArg(args, "groupCode", false),
         prompt: textArg(args, "prompt", false),
         options,
         source: "ai",
@@ -204,16 +331,29 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
       }, insertionIndex(args, project.scenes[target].blocks.length));
     }
     case "connect_branch":
-      return [{
-        op: "insert",
-        path: "/routeMap/edges",
-        value: {
-          id: createId("edge"),
-          sourceNodeId: textArg(args, "sourceNodeId")!,
-          targetNodeId: textArg(args, "targetNodeId")!,
-          condition: textArg(args, "condition", false),
-        },
-      }];
+      {
+        const source = textArg(args, "sourceNodeId")!;
+        const target = textArg(args, "targetNodeId")!;
+        if (source === target) throw new Error("剧情分支不能连接到自身");
+        if (!project.routeMap.nodes.some((node) => node.id === source)) throw new Error(`路线节点不存在：${source}`);
+        if (!project.routeMap.nodes.some((node) => node.id === target)) throw new Error(`路线节点不存在：${target}`);
+        if (project.routeMap.edges.some((edge) => edge.source === source && edge.target === target)) {
+          throw new Error("这两个剧情节点已经连接");
+        }
+        const edgeId = createId("edge");
+        const operations: StoryPatch[] = [{
+          op: "insert",
+          path: "/routeMap/edges",
+          value: {
+            id: edgeId,
+            source,
+            target,
+            label: textArg(args, "label", false),
+            condition: textArg(args, "condition", false),
+          },
+        }];
+        return operations;
+      }
     case "set_variable": {
       const target = sceneIndex(project, sceneId!);
       const operation = String(args.operation || "set");
@@ -254,6 +394,7 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
     case "compile_scene":
     case "start_preview":
     case "export_web_game":
+    case "generate_tts":
       return [];
   }
 }
@@ -289,6 +430,22 @@ export function executeAiTool(project: StoryProject, call: AiToolCall): AiToolRe
         }
       : applied.project;
     data = compileProject(target);
+  }
+  if (call.name === "generate_tts") {
+    const sceneId = textArg(args, "sceneId")!;
+    const blockId = textArg(args, "blockId")!;
+    const target = blockIndex(applied.project, sceneId, blockId);
+    const block = applied.project.scenes[target.scene].blocks[target.block];
+    if (block.type !== "dialogue") throw new Error("generate_tts 只能用于对白块");
+    data = {
+      status: "provider-required",
+      endpoint: "/api/tts",
+      text: block.text,
+      characterId: block.characterId,
+      voice: textArg(args, "voice", false),
+      model: textArg(args, "model", false),
+      nextTool: "set_voice",
+    };
   }
 
   return {

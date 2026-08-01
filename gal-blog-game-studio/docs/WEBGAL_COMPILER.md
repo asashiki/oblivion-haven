@@ -25,8 +25,11 @@ game/
     ...
   scene/
     start.txt
-    scene_start.txt
-    scene_article-archive.txt
+    scene_return.txt
+    scene_teatime.txt
+    scene_questions.txt
+    scene_protest.txt
+    scene_bookmark.txt
     ...
 story.project.json        # ZIP 中附带源数据
 assets.required.json      # ZIP 中附带资源清单
@@ -70,6 +73,8 @@ Story IR 保存逻辑资产 ID，编译时解析为 WebGAL 相对路径。ZIP �
 - `shockwaveIn` / `shockwaveOut`：冲击波显现和消失。
 
 背景与立绘的进退场使用 `changeBg` / `changeFigure` 参数；已经在舞台上的对象使用 `setAnimation`。旧项目或 AI 输入中的 `fade`、`淡入`、`淡出`会在编译边界规范化为官方 `enter` / `exit`，Story IR 仍保留用户原始局部编辑能力。
+
+角色素材卡中的 `figureScale`、`figureOffsetX` 与 `figureOffsetY` 会进入 `changeFigure -transform`。默认标准立绘采用腰上构图，Q 版可使用全身构图。同一角色、差分与站位连续出现时，编译器不会为每句台词重复发出换图指令。
 
 动画帧数据来源和 MPL-2.0 声明见根目录 `THIRD_PARTY_NOTICES.md`。
 

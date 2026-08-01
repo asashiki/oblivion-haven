@@ -1,0 +1,640 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "project_alice_minimal",
+  "title": "爱丽丝茶室 · AI 工具验收样章",
+  "slug": "alice-tea-room",
+  "version": "0.5.0",
+  "locale": "zh-CN",
+  "createdAt": "2026-07-26T15:30:00.000Z",
+  "updatedAt": "2026-07-26T19:48:53.032Z",
+  "settings": {
+    "startSceneId": "scene_3d3909b5",
+    "defaultMode": "adv",
+    "webgalVersion": "4.6.2",
+    "sharedEngineUrl": "https://cdn.jsdelivr.net/npm/webgal-engine@4.6.2/dist/assets/index-BuN51U1e.js",
+    "sharedEngineCssUrl": "https://cdn.jsdelivr.net/npm/webgal-engine@4.6.2/dist/assets/index-Dch1g2w9.css",
+    "blogBridge": {
+      "enabled": false,
+      "allowedOrigins": [],
+      "channel": "gal-blog-game",
+      "timeoutMs": 20000,
+      "capabilities": []
+    }
+  },
+  "chapters": [
+    {
+      "id": "chapter_one",
+      "name": "第一章 · 被书签留住的午后",
+      "order": 0,
+      "sceneIds": [
+        "scene_3d3909b5",
+        "scene_7f6b7a36",
+        "scene_9c044876",
+        "scene_d43796bc"
+      ],
+      "description": "只使用茶室背景、爱丽丝标准立绘和 Q 版立绘，验证分支、循环、构图与 WebGAL 实机。"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene_3d3909b5",
+      "chapterId": "chapter_one",
+      "name": "01 · 门铃之后",
+      "slug": "01-门铃之后",
+      "mode": "adv",
+      "tags": [
+        "ai-generated-acceptance",
+        "three-real-assets"
+      ],
+      "blocks": [
+        {
+          "id": "stage_90827e12",
+          "source": "ai",
+          "type": "stage",
+          "action": "set-background",
+          "assetId": "bg_alice_tea_room_day",
+          "transition": {
+            "name": "enter",
+            "durationMs": 500
+          }
+        },
+        {
+          "id": "dialogue_caa2c369",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "你比约定早了十一分钟，主人。",
+          "expressionId": "expr_alice_standard_normal",
+          "position": "right",
+          "enter": {
+            "name": "enter-from-right",
+            "durationMs": 520,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "id": "dialogue_cd0a85cc",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "不是坏事。只是门铃响起的时候，我还在想——今天要先问候你，还是先把茶端上来。"
+        },
+        {
+          "id": "dialogue_88bd48ed",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "现在看来，茶可以等一等。你握着门把的样子，比平时用力。"
+        },
+        {
+          "id": "dialogue_69c5c866",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "如果还没想好从哪里说起，就由你选一个比较容易的开头吧。"
+        },
+        {
+          "id": "choice_04702139",
+          "source": "ai",
+          "type": "choice",
+          "options": [
+            {
+              "id": "arrival_talk",
+              "label": "先说今天发生的事",
+              "targetSceneId": "scene_7f6b7a36"
+            },
+            {
+              "id": "arrival_tea",
+              "label": "先让红茶醒一会儿",
+              "targetSceneId": "scene_9c044876"
+            }
+          ],
+          "prompt": "先从哪里开始？"
+        }
+      ],
+      "aiContext": "主人比约定更早来到茶室，爱丽丝察觉他有话没有说出口。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+      "summary": "主人比约定更早来到茶室，爱丽丝察觉他有话没有说出口",
+      "entryStage": {
+        "backgroundAssetId": "bg_alice_tea_room_day",
+        "figures": [
+          {
+            "characterId": "char_alice",
+            "expressionId": "expr_alice_standard_normal",
+            "position": "right",
+            "transform": {
+              "x": 0,
+              "y": 570,
+              "scale": 1.82
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene_7f6b7a36",
+      "chapterId": "chapter_one",
+      "name": "02A · 先说今天",
+      "slug": "02a-先说今天",
+      "mode": "adv",
+      "tags": [
+        "ai-generated-acceptance",
+        "three-real-assets"
+      ],
+      "blocks": [
+        {
+          "id": "stage_cb93a4f1",
+          "source": "ai",
+          "type": "stage",
+          "action": "set-background",
+          "assetId": "bg_alice_tea_room_day",
+          "transition": {
+            "name": "enter",
+            "durationMs": 500
+          }
+        },
+        {
+          "id": "dialogue_5e12a598",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "那就从今天开始。不用从最正确的地方开始。",
+          "expressionId": "expr_alice_standard_normal",
+          "position": "left",
+          "enter": {
+            "name": "enter-from-left",
+            "durationMs": 520,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "id": "dialogue_0381ef80",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "你可以只告诉我，哪一个瞬间最想立刻离开。"
+        },
+        {
+          "id": "dialogue_bc1463f7",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "……原来如此。你不是不知道该怎么做，只是不想让任何人失望。"
+        },
+        {
+          "id": "dialogue_65ebb10d",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "可如果连你自己也被排在最后，这份体贴迟早会变成一张没人敢拆的欠条。"
+        },
+        {
+          "id": "dialogue_96467a19",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "要继续说下去，还是先回到茶桌旁？两种都不算逃避。"
+        },
+        {
+          "id": "choice_2f0b8e3f",
+          "source": "ai",
+          "type": "choice",
+          "options": [
+            {
+              "id": "confession_promise",
+              "label": "把真正担心的事说完",
+              "targetSceneId": "scene_d43796bc"
+            },
+            {
+              "id": "confession_tea",
+              "label": "先去看看红茶",
+              "targetSceneId": "scene_9c044876"
+            }
+          ],
+          "prompt": "把话说到哪一步？"
+        }
+      ],
+      "aiContext": "主人试着说明今天的迟疑，爱丽丝没有催促，只把问题缩小到可以回答的程度。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+      "summary": "主人试着说明今天的迟疑，爱丽丝没有催促，只把问题缩小到可以回答的程度",
+      "entryStage": {
+        "backgroundAssetId": "bg_alice_tea_room_day",
+        "figures": [
+          {
+            "characterId": "char_alice",
+            "expressionId": "expr_alice_standard_normal",
+            "position": "left",
+            "transform": {
+              "x": 0,
+              "y": 570,
+              "scale": 1.82
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene_9c044876",
+      "chapterId": "chapter_one",
+      "name": "02B · 先让茶醒",
+      "slug": "02b-先让茶醒",
+      "mode": "adv",
+      "tags": [
+        "ai-generated-acceptance",
+        "three-real-assets"
+      ],
+      "blocks": [
+        {
+          "id": "stage_212592b2",
+          "source": "ai",
+          "type": "stage",
+          "action": "set-background",
+          "assetId": "bg_alice_tea_room_day",
+          "transition": {
+            "name": "enter",
+            "durationMs": 500
+          }
+        },
+        {
+          "id": "dialogue_6dfdd477",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "报告主人：红茶没有生气，只是已经等得开始怀疑自己的冲泡时间。",
+          "expressionId": "expr_alice_chibi_normal",
+          "position": "center",
+          "enter": {
+            "name": "enter-from-bottom",
+            "durationMs": 420,
+            "easing": "backOut"
+          }
+        },
+        {
+          "id": "dialogue_03cd52a2",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "这是我替它说的。它本人暂时保持沉默。"
+        },
+        {
+          "id": "dialogue_0bdf69dc",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "不过，停下来喝一口以后，刚才那句话也许会变得没那么锋利。"
+        },
+        {
+          "id": "dialogue_85b66c79",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "你想回去把它说完，还是把答案留在今天的最后？"
+        },
+        {
+          "id": "choice_8132ebcc",
+          "source": "ai",
+          "type": "choice",
+          "options": [
+            {
+              "id": "tea_return",
+              "label": "回到刚才的话题",
+              "targetSceneId": "scene_7f6b7a36"
+            },
+            {
+              "id": "tea_promise",
+              "label": "把约定写进书签",
+              "targetSceneId": "scene_d43796bc"
+            }
+          ],
+          "prompt": "接下来怎么做？"
+        }
+      ],
+      "aiContext": "短暂的 Q 版演出缓和气氛，玩家可以返回谈话或继续作出约定。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+      "summary": "短暂的 Q 版演出缓和气氛，玩家可以返回谈话或继续作出约定",
+      "entryStage": {
+        "backgroundAssetId": "bg_alice_tea_room_day",
+        "figures": [
+          {
+            "characterId": "char_alice",
+            "expressionId": "expr_alice_chibi_normal",
+            "position": "center",
+            "transform": {
+              "x": 0,
+              "y": 34,
+              "scale": 0.94
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene_d43796bc",
+      "chapterId": "chapter_one",
+      "name": "03 · 留给明天的问题",
+      "slug": "03-留给明天的问题",
+      "mode": "adv",
+      "tags": [
+        "ai-generated-acceptance",
+        "three-real-assets"
+      ],
+      "blocks": [
+        {
+          "id": "stage_81163708",
+          "source": "ai",
+          "type": "stage",
+          "action": "set-background",
+          "assetId": "bg_alice_tea_room_day",
+          "transition": {
+            "name": "enter",
+            "durationMs": 500
+          }
+        },
+        {
+          "id": "dialogue_de2e9189",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "谢谢你愿意说到这里。剩下的部分，不必为了让今天完整而勉强补上。",
+          "expressionId": "expr_alice_standard_normal",
+          "position": "right",
+          "enter": {
+            "name": "enter",
+            "durationMs": 360,
+            "easing": "easeOut"
+          }
+        },
+        {
+          "id": "dialogue_99b61ac0",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "我们只约定一件事：明天醒来以后，先替自己决定一件真正重要的事。"
+        },
+        {
+          "id": "dialogue_ef5bdbea",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "不是最紧急的，也不是别人最期待的。只是一件你愿意承认重要的事。"
+        },
+        {
+          "id": "dialogue_786ad26e",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "我会把空白留在这张书签上。等你想写的时候，再交给我。"
+        },
+        {
+          "id": "dialogue_0fe71eed",
+          "source": "ai",
+          "type": "dialogue",
+          "characterId": "char_alice",
+          "text": "现在，红茶的温度刚好。欢迎回来，主人。"
+        }
+      ],
+      "aiContext": "爱丽丝恢复标准构图，与主人约定明天只处理一件真正重要的事。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+      "summary": "爱丽丝恢复标准构图，与主人约定明天只处理一件真正重要的事",
+      "entryStage": {
+        "backgroundAssetId": "bg_alice_tea_room_day",
+        "figures": [
+          {
+            "characterId": "char_alice",
+            "expressionId": "expr_alice_standard_normal",
+            "position": "right",
+            "transform": {
+              "x": 0,
+              "y": 570,
+              "scale": 1.82
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "characters": [
+    {
+      "id": "char_alice",
+      "name": "Alice",
+      "displayName": "爱丽丝",
+      "aliases": [
+        "alice",
+        "看板娘"
+      ],
+      "color": "#6576b7",
+      "expressions": [
+        {
+          "id": "expr_alice_standard_normal",
+          "name": "标准立绘 · 平静微笑",
+          "assetId": "fig_alice_standard_normal",
+          "aliases": [
+            "普通",
+            "平静",
+            "微笑",
+            "标准"
+          ],
+          "tags": [
+            "default",
+            "calm",
+            "soft-smile"
+          ]
+        },
+        {
+          "id": "expr_alice_chibi_normal",
+          "name": "Q版立绘 · 平静",
+          "assetId": "fig_alice_chibi_normal",
+          "aliases": [
+            "Q版",
+            "小人",
+            "可爱",
+            "平静"
+          ],
+          "tags": [
+            "chibi",
+            "calm",
+            "cute"
+          ]
+        }
+      ],
+      "description": "爱丽丝馆的看板娘，称呼浅仪式为“主人”。",
+      "persona": "语气温柔、克制而礼貌。当前只登记了标准立绘与 Q 版立绘，不虚构其他表情。",
+      "defaultExpressionId": "expr_alice_standard_normal"
+    }
+  ],
+  "assets": [
+    {
+      "id": "bg_alice_tea_room_day",
+      "kind": "background",
+      "name": "爱丽丝馆 · 白昼茶室",
+      "path": "project-assets/alice-tea-room-day.png",
+      "aliases": [
+        "白昼茶室",
+        "爱丽丝茶室",
+        "玻璃花房",
+        "茶会房间"
+      ],
+      "mimeType": "image/png",
+      "metadata": {
+        "description": "明亮的欧式玻璃茶室与图书空间，窗外是白昼花园，中央摆有茶桌。",
+        "recommendedUse": "白天的茶会、迎接、日常对话与安静室内场景；当前没有夜晚版本。",
+        "tags": "茶室, 白天, 室内, 花园, 安静, 温暖",
+        "originalName": "ChatGPT Image 2026年7月16日 01_46_33.png",
+        "semanticReady": true,
+        "bundled": true
+      }
+    },
+    {
+      "id": "fig_alice_standard_normal",
+      "kind": "expression",
+      "name": "爱丽丝 · 标准立绘 / 平静微笑",
+      "path": "project-assets/alice-standard-normal.png",
+      "aliases": [
+        "爱丽丝标准立绘",
+        "爱丽丝普通",
+        "爱丽丝微笑",
+        "Alice_0"
+      ],
+      "mimeType": "image/png",
+      "metadata": {
+        "description": "爱丽丝的标准全身立绘，神态平静并带有轻微微笑，右手靠近胸前。",
+        "recommendedUse": "普通对话、迎接、温和回应与较正式的茶会场景。",
+        "tags": "爱丽丝, 标准立绘, 平静, 轻微微笑, 全身",
+        "originalName": "Alice_0.png",
+        "figureShot": "waist",
+        "figureDefaultPosition": "right",
+        "figureDefaultX": 0,
+        "figureDefaultY": 570,
+        "figureDefaultScale": 1.82,
+        "sourceWidth": 1086,
+        "sourceHeight": 1449,
+        "figureVisibleLeft": 0.2284,
+        "figureVisibleTop": 0.0069,
+        "figureVisibleRight": 0.7956,
+        "figureVisibleBottom": 0.96,
+        "semanticReady": true,
+        "bundled": true
+      }
+    },
+    {
+      "id": "fig_alice_chibi_normal",
+      "kind": "expression",
+      "name": "爱丽丝 · Q版立绘 / 平静",
+      "path": "project-assets/alice-chibi-normal.png",
+      "aliases": [
+        "爱丽丝Q版",
+        "爱丽丝小人",
+        "chibi Alice",
+        "alice-chibi normal"
+      ],
+      "mimeType": "image/png",
+      "metadata": {
+        "description": "爱丽丝的 Q 版全身立绘，闭嘴、平静直视，适合轻松或强调可爱感的演出。",
+        "recommendedUse": "轻松回应、提示、短小过场或带一点喜剧感的场景；不作为强烈情绪差分。",
+        "tags": "爱丽丝, Q版, 平静, 可爱, 全身",
+        "originalName": "alice-chibi_normal.png",
+        "figureShot": "full",
+        "figureDefaultPosition": "center",
+        "figureDefaultX": 0,
+        "figureDefaultY": 34,
+        "figureDefaultScale": 0.94,
+        "sourceWidth": 1024,
+        "sourceHeight": 1536,
+        "figureVisibleLeft": 0.0596,
+        "figureVisibleTop": 0.099,
+        "figureVisibleRight": 0.9404,
+        "figureVisibleBottom": 0.9603,
+        "semanticReady": true,
+        "bundled": true
+      }
+    }
+  ],
+  "variables": [],
+  "routeMap": {
+    "layoutDirection": "top-down",
+    "nodes": [
+      {
+        "id": "route_a8be5ca9",
+        "kind": "start",
+        "title": "01 · 门铃之后",
+        "x": 360,
+        "y": 210,
+        "sceneId": "scene_3d3909b5",
+        "replayable": true
+      },
+      {
+        "id": "route_0b0b7181",
+        "kind": "scene",
+        "title": "02A · 先说今天",
+        "x": 360,
+        "y": 380,
+        "sceneId": "scene_7f6b7a36",
+        "replayable": true
+      },
+      {
+        "id": "route_ad925a45",
+        "kind": "scene",
+        "title": "02B · 先让茶醒",
+        "x": 360,
+        "y": 550,
+        "sceneId": "scene_9c044876",
+        "replayable": true
+      },
+      {
+        "id": "route_bde3546e",
+        "kind": "scene",
+        "title": "03 · 留给明天的问题",
+        "x": 360,
+        "y": 720,
+        "sceneId": "scene_d43796bc",
+        "replayable": true
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_0c41d42d",
+        "source": "route_a8be5ca9",
+        "target": "route_0b0b7181",
+        "label": "先说今天"
+      },
+      {
+        "id": "edge_f010b3c0",
+        "source": "route_a8be5ca9",
+        "target": "route_ad925a45",
+        "label": "先让茶醒"
+      },
+      {
+        "id": "edge_b5ee2d35",
+        "source": "route_0b0b7181",
+        "target": "route_bde3546e",
+        "label": "把担心说完"
+      },
+      {
+        "id": "edge_23cd12f1",
+        "source": "route_0b0b7181",
+        "target": "route_ad925a45",
+        "label": "回到茶桌"
+      },
+      {
+        "id": "edge_0038ef91",
+        "source": "route_ad925a45",
+        "target": "route_0b0b7181",
+        "label": "回到话题"
+      },
+      {
+        "id": "edge_c1837031",
+        "source": "route_ad925a45",
+        "target": "route_bde3546e",
+        "label": "写下约定"
+      }
+    ]
+  },
+  "endings": [
+    {
+      "id": "ending_generated_bookmark",
+      "name": "留白的书签",
+      "kind": "normal",
+      "routeNodeId": "route_bde3546e",
+      "sceneId": "scene_d43796bc"
+    }
+  ],
+  "savePoints": [],
+  "aiConfigs": [],
+  "description": "由 ChatGPT 在编辑器功能完成后，通过项目公开的 AI 工具调用链生成；不是手写进默认场景的固定演示。"
+}

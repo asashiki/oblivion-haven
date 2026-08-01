@@ -7,39 +7,38 @@
 ### 标签式
 
 ```text
-[角色=爱丽丝][表情=微笑2][背景=茶室夜晚][BGM=quiet][入场=淡入][位置=中间]
-爱丽丝：欢迎回来，主人。
+[角色=爱丽丝][表情=标准立绘][背景=白昼茶室][入场=淡入][位置=右侧]
+爱丽丝：欢迎回来，主人。今天的茶会已经准备好了。
 ```
 
 ### 自然语言
 
 ```text
-让爱丽丝从右侧缓慢淡入，表情有些犹豫，然后说“主人今天回来得有些晚呢”。
+让爱丽丝从右侧缓慢淡入，使用 Q 版立绘，然后说“今天先试试这场小茶会吧”。
 ```
 
 ### Ren'Py-like
 
 ```renpy
-scene 茶室夜晚 with fade duration 0.8
-show 爱丽丝 犹豫 at right
-play music quiet
-爱丽丝 "主人今天回来得有些晚呢。"
+scene 白昼茶室 with fade duration 0.8
+show 爱丽丝 标准立绘 at right
+爱丽丝 "欢迎回来，主人。今天的茶会已经准备好了。"
 ```
 
 ### Markdown
 
 ```markdown
-## 夜间茶会
-**爱丽丝（犹豫，右）**：主人今天回来得有些晚呢。
-> 玻璃上映出两个人的影子。
+## 午后茶会
+**爱丽丝（标准立绘，右）**：欢迎回来，主人。
+> 阳光穿过玻璃穹顶，落在茶桌上。
 ```
 
 ### WebGAL
 
 ```text
-changeBg:tea-room-night.webp -duration=800;
-changeFigure:alice/shy.png -right -enter=enter-from-right;
-爱丽丝:主人今天回来得有些晚呢。;
+changeBg:project-assets/alice-tea-room-day.png -duration=800;
+changeFigure:project-assets/alice-standard-normal.png -right -enter=enter-from-right;
+爱丽丝:欢迎回来，主人。;
 ```
 
 WebGAL 导入会进入 Story IR；无法安全反推的高级命令保存在 `native` 块中。JSON 可输入剧情块数组、带 `blocks` 的 fragment 或完整 StoryProject。
@@ -53,7 +52,7 @@ AI 不应每次覆盖项目。Patch 协议支持：
   {
     "op": "test",
     "path": "/scenes/0/blocks/3/id",
-    "value": "b_p_1"
+    "value": "return_d1"
   },
   {
     "op": "set",
@@ -67,7 +66,7 @@ AI 不应每次覆盖项目。Patch 协议支持：
     "value": {
       "id": "b_ai_new",
       "type": "narration",
-      "text": "窗外的雨声忽然变轻了。",
+      "text": "窗外的阳光落在茶杯边缘。",
       "source": "ai"
     }
   }
@@ -101,15 +100,17 @@ Content-Type: application/json
   "call": {
     "name": "modify_line",
     "arguments": {
-      "sceneId": "scene_prologue",
-      "blockId": "b_p_1",
-      "text": "欢迎回来，主人。今晚想先读哪一页？"
+      "sceneId": "scene_return",
+      "blockId": "return_d1",
+      "text": "欢迎回来，主人。今天想先从哪一页开始？"
     }
   }
 }
 ```
 
 响应包含修改后的 `project`、正向 `operations`、可撤销的 `inverse` 和工具数据。生产 AI 服务应只允许项目 `aiConfigs[].allowedTools` 中列出的工具，并限制单回合操作数量。
+
+`add_choice` 的选项支持 `targetChoiceGroupId`、`endScene` 与 `recordId`。不填写跳转目标表示继续播放当前片段，AI 可以把参与感选项插在对白中间，再为紧随其后的 `dialogue.choiceReactions` 生成只生效一行的台词或立绘反应。`connect_branch` 只创建片段结束后的外层主干，不再向片段内容偷偷插入跳转块。
 
 ## 通用 Patch API
 
