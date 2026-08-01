@@ -39,7 +39,17 @@ changeFigure:alice/alice_normal_idle_base.png -id=alice -mouthOpen=alice/alice_n
 
 [RFC 0005：WebGAL 静态组合立绘](https://github.com/OpenWebGAL/WebGAL/issues/1010) 于 2026-07-23 提出，目前仍是开放 RFC。它以 WebGAL 4.6.2 行为为基线，明确把动态部件、局部替换、口型和眨眼列为首期非目标，并拒绝在组合命令中使用上述眼嘴参数。
 
-因此不要把局部眼嘴零件或 `figure.json` 当作当前口型交付格式。技能可以保留透明局部零件供未来引擎、调试或再合成使用，但当前正式输出仍须是程序强制合成后的完整帧。
+因此不要把局部眼嘴零件或 `figure.json` 当作当前 WebGAL 口型参数的交付格式。技能仍正式导出透明矩形替换片与 Canvas 合成工具，供自研引擎、调试或未来接入使用；当前 WebGAL 交付仍须同时包含程序强制合成后的完整帧。
+
+## 自研 Canvas 合成契约
+
+每个局部状态同时导出：
+
+- 从已验收完整帧按 `mask_bbox` 裁出的透明矩形替换片；
+- `runtime/runtime-manifest.json` 中的 `x/y/width/height`；
+- `patch_mode=replace-rect`。
+
+运行时必须先 `clearRect(x, y, width, height)`，再把替换片画回同一矩形。不要把它当普通半透明贴纸直接叠加，否则发丝或抗锯齿边缘可能被重复混色。眼区和嘴区互不重叠时可以同时应用，从而得到眨眼中的说话帧。
 
 ## 技能映射
 
@@ -49,6 +59,6 @@ changeFigure:alice/alice_normal_idle_base.png -id=alice -mouthOpen=alice/alice_n
 | `mouth_half_open` | `mouthHalfOpen` | 是 |
 | `mouth_open` | `mouthOpen` | 是 |
 | `eyes_close` | `eyesClose` | 仅 `blink=dynamic` 时 |
-| `eyes_half` | 无正式参数 | 仅用户点名时作为可选表情素材 |
+| `eyes_half` | 无正式参数 | 默认随睁眼母版导出，可作为半眯眼／附加情绪素材单独调用 |
 
 模型候选不得直接交付。程序只允许眼睛或嘴巴蒙版内的像素进入最终完整帧，并验证蒙版外变化像素为 `0`。

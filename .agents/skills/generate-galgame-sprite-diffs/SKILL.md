@@ -1,6 +1,6 @@
 ---
 name: generate-galgame-sprite-diffs
-description: "Generate consistency-locked Galgame full-body character sprites plus WebGAL-ready mouth-sync and blink differentials through four guarded stages: one standard model-reference stance, three clearly distinct closed-mouth runtime-normal poses, sparse expressive mother frames, and pixel-forced full-canvas eye/mouth frames. Use for transparent Galgame standing sprites, pose or expression 差分立绘, WebGAL image-sprite lip sync, blinking, age/proportion-faithful character conversion, or reusable remote-API sprite pipelines."
+description: "Generate consistency-locked Galgame full-body character sprites plus WebGAL-ready mouth-sync and blink differentials through guarded chroma cutout, three distinct closed-mouth runtime-normal poses, sparse expressive mothers, and pixel-forced eye/mouth frames and replacement parts. Use for transparent Galgame standing sprites, pose or expression 差分立绘, WebGAL image-sprite lip sync, blinking, transparent-edge cleanup, age/proportion-faithful conversion, or a browser runtime that composes eye/mouth parts without GIFs."
 ---
 
 # Generate Galgame Sprite Diffs
@@ -30,7 +30,7 @@ Default to:
 
 The three pose bases already are three `normal` expressions. Do not generate another `normal`. Do not generate an ordinary `smile` by default: normal mouth movement supplies ordinary speaking animation. Add either only when the user explicitly overrides this optimized set.
 
-Every pose base keeps both eyes open, mouth fully closed, and face neutral. At pose review, reject a group if two poses remain interchangeable at contact-sheet size. The hand arrangement, shoulders, torso axis, hips, clothing, feet, and weight must differ coherently; changing only one hand is insufficient.
+Every pose base keeps both eyes open and the mouth fully closed. Allow a faint friendly closed-lip curve, but no open mouth or emotion-coded smile. At pose review, reject a group if two poses remain interchangeable at contact-sheet size. The hand arrangement, shoulders, torso axis, hips, clothing, feet, and weight must differ coherently; changing only one hand is insufficient.
 
 ## Keep the four-stage contract
 
@@ -43,7 +43,7 @@ Use these states:
 5. `EXPRESSIONS_PENDING` → generate all expressions independently from their mapped approved poses.
 6. `EXPRESSIONS_REVIEW` → stop for expression-group approval.
 7. `RUNTIME_PENDING` → generate sparse eye/mouth candidates and force-compose them.
-8. `COMPLETE` → export WebGAL assets, previews, README, and inventory.
+8. `COMPLETE` → export WebGAL frames, runtime replacement parts, compositor, previews, README, and inventory.
 
 Never cross a review gate without explicit approval. If the user explicitly preauthorizes an unattended run, execute the same gates internally and record hashes at each gate; do not remove the checks.
 
@@ -84,7 +84,9 @@ Make exactly one call with `work/prompts/reference_normal.txt`. Save the opaque 
 ```bash
 python "$SKILL_DIR/scripts/sprite_tools.py" cutout \
   <reference-source> <run>/work/cutouts/<slug>_reference_normal.png \
-  --scope all --soft-matte --despill \
+  --scope all --soft-matte --despill --auto-refine \
+  --auto-refine-max-alpha-loss 0.025 \
+  --review-out <run>/work/qa/reference-cutout-review.jpg \
   --json <run>/work/qa/reference-cutout.json
 
 python "$SKILL_DIR/scripts/sprite_tools.py" normalize \
@@ -98,7 +100,19 @@ python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json base-ready \
   --final <run>/work/finals/<slug>_reference_normal.png
 ```
 
-Sample every generated source’s actual border color during cutout; do not assume the requested key was reproduced exactly. Validate alpha, complete loading, canvas, margins, transparent corners, and key residue. Show the transparent result and stop at `BASE_REVIEW`. Any age-up, smaller head, longer legs, slimmer build, or face change is rejection.
+Sample every generated source’s actual border color during cutout; do not assume the requested key was reproduced exactly. Auto-refine ranks several stronger mattes but may select one only while alpha-area loss stays under the configured limit. Then validate with the sampled color and configured strict edge threshold:
+
+```bash
+python "$SKILL_DIR/scripts/sprite_tools.py" validate \
+  <run>/work/finals/<slug>_reference_normal.png \
+  --expect-size 1024x1536 --key-color <actual-sampled-key-color> \
+  --max-residual-key-edge-fraction 0.06 \
+  --json <run>/work/qa/reference-final.json
+```
+
+Use `view_image` on `reference-cutout-review.jpg` and inspect hair tips, flyaway strands, pale clothing, enclosed gaps, and the outline on dark, light, and purple mattes. This visual cutout gate is mandatory even when the user preauthorizes an unattended run: record it as an internal approval, never treat “no user confirmation” as permission to skip inspection. Any visible key-colored halo or validation residue warning requires one bounded re-cut with a stronger safe candidate; if that harms hair or clothing, regenerate the chroma source on the next safe key. Do not continue to poses with a questionable reference cutout.
+
+After the cutout passes, validate alpha, complete loading, canvas, margins, transparent corners, and key residue. Show the transparent result and stop at `BASE_REVIEW`. Any age-up, smaller head, longer legs, slimmer build, or face change is rejection.
 
 After approval:
 
@@ -108,7 +122,7 @@ python "$SKILL_DIR/scripts/run_state.py" <run>/manifest.json approve-base
 
 ## Stage 2: approve three distinct pose bases
 
-Generate each pose in a separate edit call from the same approved `reference_normal` chroma source. Never derive one pose from another. Cut out each independently, calculate its own normalization transform, validate it, and register it with `pose-ready`.
+Generate each pose in a separate edit call from the same approved `reference_normal` chroma source. Never derive one pose from another. Cut out each independently with auto-refine and its own sampled border color, calculate its own normalization transform, validate it, and register it with `pose-ready`. Programmatic edge QA is mandatory for every source; the four-matte `view_image` inspection is mandatory for the standard reference and for any later source that warns or uses a different actual key.
 
 For `side`, turn left or right according to silhouette readability or the configured direction. A larger lean is allowed, but retain a recognizable full face and direct eye contact. Reject a fake side pose that changes only hands or hair.
 
@@ -148,7 +162,7 @@ Generate only states listed in `manifest.runtime_assets`:
 - `mouth_half_open` and `mouth_open` for each `mouth_sync=true` mother;
 - `eyes_close` only for `blink=dynamic`;
 - never generate eye states for fixed-closed `laugh` or `thinking`;
-- generate `eyes_half` only when explicitly listed in that mother’s `extra_states`; it is not required by WebGAL.
+- generate `eyes_half` only when explicitly listed in that mother’s `extra_states`; the optimized default lists it for every open-eyed mother because it doubles as a useful alternate mood frame, although WebGAL does not require it for automatic blinking.
 
 The two mouth states are neighboring movements. `mouth_open` must be only modestly more open than `mouth_half_open`, with the same emotion, mouth corners, inner-mouth palette, and teeth/tongue policy.
 
@@ -219,13 +233,22 @@ deliverables/
   README.md
   webgal-manifest.json
   inventory.json
-  figures/      # only same-canvas WebGAL-ready full PNG frames
-  previews/     # contact sheet and demo GIFs
+  figures/      # same-canvas WebGAL-ready full PNG frames
+  parts/        # exact cropped eye/mouth replacement rectangles
+  runtime/
+    runtime-manifest.json
+    sprite-compositor.js
+    preview.html
+  previews/     # contact sheet; demo GIFs only when explicitly enabled
 ```
 
-Keep all prompts, chroma sources, cutouts, approved work finals, transforms, masks, local parts, raw candidates, and QA under `work/`. Do not mix them into `deliverables/figures`.
+Keep all prompts, chroma sources, cutouts, approved work finals, transforms, masks, raw candidates, and QA under `work/`. Do not mix them into `deliverables/figures`. Copy every actually required runtime artifact into `deliverables`: never make the user recover expression or eye/mouth assets from the test project.
 
-Report the canvas, exact generation-call count, fixed-eye expressions, warnings, and export verification. WebGAL maps base to `mouthClose` and dynamic `eyesOpen`; fixed-closed expressions omit eye parameters entirely.
+`figures/` is the current WebGAL contract. `parts/` and `runtime/` are the lossless browser/custom-engine contract. Each exported part is cropped from the already accepted full frame using its recorded `mask_bbox`; apply it by clearing that exact rectangle and drawing the patch at the recorded coordinate, not by visually guessing an offset or stacking a translucent model candidate. This permits simultaneous eye and mouth states while preserving the original transparent canvas.
+
+Set `make_demo_gifs=false` by default. A GIF is optional visual evidence only: it is palette-limited, may have a matte background, and cannot follow actual dialogue duration. The Canvas preview must animate from the base plus exported replacement parts and let the caller choose speaking duration and blinking policy.
+
+Report the canvas, exact generation-call count, fixed-eye expressions, cutout review result, full-frame/part counts, warnings, and export verification. WebGAL maps base to `mouthClose` and dynamic `eyesOpen`; fixed-closed expressions omit eye parameters entirely.
 
 ## Preserve portability
 

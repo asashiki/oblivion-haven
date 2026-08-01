@@ -71,6 +71,132 @@ def sample_border_key(rgb: np.ndarray, band: int = 8) -> np.ndarray:
     return np.median(samples, axis=0).astype(np.float32)
 
 
+def cutout_metrics(rgba: np.ndarray, key: np.ndarray) -> dict:
+    """Measure matte loss and chroma-colored edge residue for candidate ranking."""
+
+    alpha = rgba[..., 3]
+    rgb = rgba[..., :3].astype(np.float32)
+    distance = np.sqrt(np.sum((rgb - key.reshape(1, 1, 3)) ** 2, axis=2))
+    partial = (alpha > 4) & (alpha < 251)
+    visible = alpha > 8
+    partial_count = int(np.count_nonzero(partial))
+    visible_count = int(np.count_nonzero(visible))
+    residual_edge_pixels = int(np.count_nonzero(partial & (distance < 80.0)))
+    residual_visible_pixels = int(np.count_nonzero(visible & (distance < 64.0)))
+    return {
+        "alpha_area": round(float(alpha.astype(np.float64).sum() / 255.0), 3),
+        "partial_alpha_pixels": partial_count,
+        "visible_pixels": visible_count,
+        "residual_key_edge_pixels": residual_edge_pixels,
+        "residual_key_edge_fraction": round(
+            residual_edge_pixels / max(1, partial_count), 8
+        ),
+        "residual_key_visible_pixels": residual_visible_pixels,
+        "residual_key_visible_fraction": round(
+            residual_visible_pixels / max(1, visible_count), 8
+        ),
+    }
+
+
+def build_cutout(
+    rgb: np.ndarray,
+    key: np.ndarray,
+    *,
+    transparent_distance: float,
+    opaque_distance: float,
+    edge_radius: int,
+    scope: str,
+    soft_matte: bool,
+    despill: bool,
+) -> np.ndarray:
+    distance = np.sqrt(np.sum((rgb - key) ** 2, axis=2))
+    key_like = distance < opaque_distance
+    removable_band = border_connected(key_like) if scope == "border-connected" else key_like
+    transparent_core = removable_band & (distance <= transparent_distance)
+
+    alpha = np.ones(distance.shape, dtype=np.float32)
+    if soft_matte:
+        soft = removable_band & ~transparent_core
+        alpha[transparent_core] = 0.0
+        alpha[soft] = np.clip(
+            (distance[soft] - transparent_distance)
+            / (opaque_distance - transparent_distance),
+            0.0,
+            1.0,
+        )
+        if edge_radius > 0 and np.any(soft):
+            alpha_image = Image.fromarray(np.rint(alpha * 255).astype(np.uint8), mode="L")
+            smoothed = np.asarray(
+                alpha_image.filter(ImageFilter.GaussianBlur(radius=edge_radius / 3.0)),
+                dtype=np.float32,
+            ) / 255.0
+            alpha[soft] = smoothed[soft]
+            alpha[transparent_core] = 0.0
+    else:
+        alpha[removable_band] = 0.0
+
+    alpha[alpha <= (4.0 / 255.0)] = 0.0
+    alpha[alpha >= (251.0 / 255.0)] = 1.0
+
+    foreground = rgb.copy()
+    if despill:
+        partial = (alpha > 0.0) & (alpha < 1.0) & removable_band
+        safe_alpha = np.maximum(alpha, 0.08)
+        reconstructed = (rgb - (1.0 - safe_alpha[..., None]) * key) / safe_alpha[..., None]
+        foreground[partial] = np.clip(reconstructed[partial], 0.0, 255.0)
+    foreground[alpha == 0.0] = 0.0
+    return np.dstack(
+        (
+            np.rint(foreground).astype(np.uint8),
+            np.rint(alpha * 255.0).astype(np.uint8),
+        )
+    )
+
+
+def make_cutout_review(rgba: np.ndarray, output: Path, key: np.ndarray) -> None:
+    """Render a cutout on hostile mattes so visual review can catch fringes."""
+
+    source = Image.fromarray(rgba, mode="RGBA")
+    panel_size = (420, 630)
+    label_height = 34
+    colors = (
+        (18, 18, 22, 255),
+        (250, 250, 250, 255),
+        (126, 78, 184, 255),
+        tuple(int(value) for value in key) + (255,),
+    )
+    labels = ("DARK MATTE", "LIGHT MATTE", "PURPLE MATTE", "SOURCE KEY MATTE")
+    sheet = Image.new(
+        "RGBA",
+        (panel_size[0] * 2, (panel_size[1] + label_height) * 2),
+        (35, 35, 40, 255),
+    )
+    draw = ImageDraw.Draw(sheet)
+    font = ImageFont.load_default()
+    for index, (color, label) in enumerate(zip(colors, labels)):
+        panel = Image.new("RGBA", panel_size, color)
+        sprite = source.copy()
+        sprite.thumbnail((panel_size[0] - 20, panel_size[1] - 20), Image.Resampling.LANCZOS)
+        panel.alpha_composite(
+            sprite,
+            ((panel_size[0] - sprite.width) // 2, panel_size[1] - sprite.height - 10),
+        )
+        column = index % 2
+        row = index // 2
+        x = column * panel_size[0]
+        y = row * (panel_size[1] + label_height)
+        sheet.alpha_composite(panel, (x, y + label_height))
+        box = draw.textbbox((0, 0), label, font=font)
+        draw.text(
+            (x + (panel_size[0] - (box[2] - box[0])) // 2, y + 10),
+            label,
+            fill=(255, 255, 255, 255),
+            font=font,
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    sheet.convert("RGB").save(output, format="JPEG", quality=96)
+
+
 def border_connected(mask: np.ndarray) -> np.ndarray:
     """Return only true pixels connected to the outside border."""
     try:
@@ -273,60 +399,52 @@ def command_cutout(args: argparse.Namespace) -> None:
         rgb_u8 = np.asarray(image.convert("RGB"), dtype=np.uint8)
     rgb = rgb_u8.astype(np.float32)
     key = args.key_color if args.key_color is not None else sample_border_key(rgb)
-    distance = np.sqrt(np.sum((rgb - key) ** 2, axis=2))
+    distances = [float(args.opaque_distance)]
+    if args.auto_refine:
+        distances.extend(
+            min(245.0, float(args.opaque_distance) + step)
+            for step in (18.0, 36.0, 54.0)
+        )
+    distances = sorted(set(value for value in distances if value > args.transparent_distance))
+    candidates: list[tuple[float, np.ndarray, dict]] = []
+    for opaque_distance in distances:
+        candidate = build_cutout(
+            rgb,
+            key,
+            transparent_distance=args.transparent_distance,
+            opaque_distance=opaque_distance,
+            edge_radius=args.edge_radius,
+            scope=args.scope,
+            soft_matte=args.soft_matte,
+            despill=args.despill,
+        )
+        candidates.append((opaque_distance, candidate, cutout_metrics(candidate, key)))
 
-    key_like = distance < args.opaque_distance
-    # Chroma-key backgrounds can form enclosed islands between hair strands,
-    # ribbons, arms, and clothing. The normal workflow therefore removes every
-    # key-like pixel. Border-connected mode remains available only for an
-    # explicitly accepted subject/key color collision.
-    removable_band = (
-        border_connected(key_like)
-        if args.scope == "border-connected"
-        else key_like
-    )
-    transparent_core = removable_band & (distance <= args.transparent_distance)
-
-    alpha = np.ones(distance.shape, dtype=np.float32)
-    if args.soft_matte:
-        soft = removable_band & ~transparent_core
-        alpha[transparent_core] = 0.0
-        alpha[soft] = np.clip(
-            (distance[soft] - args.transparent_distance)
-            / (args.opaque_distance - args.transparent_distance),
+    baseline_area = float(candidates[0][2]["alpha_area"])
+    eligible: list[tuple[float, np.ndarray, dict]] = []
+    for item in candidates:
+        area_loss = max(
             0.0,
-            1.0,
+            (baseline_area - float(item[2]["alpha_area"])) / max(1.0, baseline_area),
         )
-        if args.edge_radius > 0 and np.any(soft):
-            alpha_image = Image.fromarray(np.rint(alpha * 255).astype(np.uint8), mode="L")
-            smoothed = np.asarray(
-                alpha_image.filter(ImageFilter.GaussianBlur(radius=args.edge_radius / 3.0)),
-                dtype=np.float32,
-            ) / 255.0
-            alpha[soft] = smoothed[soft]
-            alpha[transparent_core] = 0.0
-    else:
-        alpha[removable_band] = 0.0
-
-    alpha[alpha <= (4.0 / 255.0)] = 0.0
-    alpha[alpha >= (251.0 / 255.0)] = 1.0
-
-    foreground = rgb.copy()
-    if args.despill:
-        partial = (alpha > 0.0) & (alpha < 1.0) & removable_band
-        safe_alpha = np.maximum(alpha, 0.08)
-        reconstructed = (rgb - (1.0 - safe_alpha[..., None]) * key) / safe_alpha[..., None]
-        foreground[partial] = np.clip(reconstructed[partial], 0.0, 255.0)
-    foreground[alpha == 0.0] = 0.0
-
-    rgba = np.dstack(
-        (
-            np.rint(foreground).astype(np.uint8),
-            np.rint(alpha * 255.0).astype(np.uint8),
-        )
+        item[2]["alpha_area_loss_vs_baseline"] = round(area_loss, 8)
+        if area_loss <= args.auto_refine_max_alpha_loss:
+            eligible.append(item)
+    if not eligible:
+        eligible = [candidates[0]]
+    selected_opaque_distance, rgba, selected_metrics = min(
+        eligible,
+        key=lambda item: (
+            item[2]["residual_key_visible_fraction"],
+            item[2]["residual_key_edge_fraction"],
+            item[2]["alpha_area_loss_vs_baseline"],
+            item[0],
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(rgba, mode="RGBA").save(args.output, format="PNG")
+    if args.review_out is not None:
+        make_cutout_review(rgba, args.review_out, key)
 
     report = {
         "operation": "cutout",
@@ -334,6 +452,15 @@ def command_cutout(args: argparse.Namespace) -> None:
         "output": str(args.output),
         "key_color": color_hex(key),
         "scope": args.scope,
+        "auto_refine": args.auto_refine,
+        "requested_opaque_distance": args.opaque_distance,
+        "selected_opaque_distance": selected_opaque_distance,
+        "selected_metrics": selected_metrics,
+        "candidates": [
+            {"opaque_distance": distance, **metrics}
+            for distance, _, metrics in candidates
+        ],
+        "review_preview": str(args.review_out) if args.review_out is not None else None,
         "size": [int(rgba.shape[1]), int(rgba.shape[0])],
         "transparent_pixels": int(np.count_nonzero(rgba[..., 3] == 0)),
         "partial_alpha_pixels": int(np.count_nonzero((rgba[..., 3] > 0) & (rgba[..., 3] < 255))),
@@ -479,7 +606,7 @@ def command_validate(args: argparse.Namespace) -> None:
         distance = np.sqrt(np.sum((rgb - args.key_color) ** 2, axis=2))
         if partial_count:
             residual_fraction = float(np.count_nonzero(partial & (distance < 64)) / partial_count)
-            if residual_fraction > 0.12:
+            if residual_fraction > args.max_residual_key_edge_fraction:
                 warnings.append("半透明边缘仍含较多色键颜色")
         visible_count = max(1, int(np.count_nonzero(alpha > 8)))
         residual_opaque_pixels = int(np.count_nonzero((alpha >= 128) & (distance < 64)))
@@ -673,6 +800,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cutout.add_argument("--soft-matte", action=argparse.BooleanOptionalAction, default=True)
     cutout.add_argument("--despill", action=argparse.BooleanOptionalAction, default=True)
+    cutout.add_argument(
+        "--auto-refine",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="尝试更强的安全消色阈值，并在主体 alpha 损失受限时选择残色更少的版本",
+    )
+    cutout.add_argument(
+        "--auto-refine-max-alpha-loss",
+        type=float,
+        default=0.025,
+        help="相对基础阈值允许的最大主体 alpha 面积损失比例",
+    )
+    cutout.add_argument("--review-out", type=Path, help="输出明暗底透明化视觉复核图")
     cutout.add_argument("--json", type=Path, help="保存 JSON 报告")
     cutout.set_defaults(func=command_cutout)
 
@@ -694,6 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--key-color", type=parse_hex_color)
     validate.add_argument("--min-margin-percent", type=float, default=2.0)
     validate.add_argument("--corner-size", type=int, default=12)
+    validate.add_argument("--max-residual-key-edge-fraction", type=float, default=0.06)
     validate.add_argument("--json", type=Path, help="保存 JSON 报告")
     validate.set_defaults(func=command_validate)
 
@@ -728,6 +869,10 @@ def main() -> None:
         raise SystemExit("--margin-percent 须在 0 到 25 之间")
     if hasattr(args, "corner_size") and args.corner_size < 1:
         raise SystemExit("--corner-size 须大于 0")
+    if hasattr(args, "auto_refine_max_alpha_loss") and not 0 <= args.auto_refine_max_alpha_loss <= 0.20:
+        raise SystemExit("--auto-refine-max-alpha-loss 须在 0 到 0.20 之间")
+    if hasattr(args, "max_residual_key_edge_fraction") and not 0 <= args.max_residual_key_edge_fraction <= 1:
+        raise SystemExit("--max-residual-key-edge-fraction 须在 0 到 1 之间")
     args.func(args)
 
 

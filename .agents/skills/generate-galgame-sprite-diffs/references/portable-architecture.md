@@ -23,11 +23,11 @@
 默认运行时只生成实际需要的状态：
 
 - 所有启用口型的母版：`mouth_half_open`、`mouth_open`；
-- 仅 `blink=dynamic` 的母版：`eyes_close`；
+- 所有睁眼且 `blink=dynamic` 的母版：`eyes_half`、`eyes_close`；
 - `laugh` 与 `thinking` 固定闭眼，不生成眼睛状态；
-- `eyes_half` 不是 WebGAL 必需状态，仅在用户点名的母版上稀疏生成。
+- `eyes_half` 不是 WebGAL 自动眨眼的必需状态，但默认保留为可单独调用的附加情绪素材。
 
-默认共 35 次图片调用：1 基准 + 3 姿势 + 6 表情 + 25 个稀疏眼嘴候选。每个候选都从自己的批准母版独立生成。
+默认共 42 次图片调用：1 基准 + 3 姿势 + 6 表情 + 32 个稀疏眼嘴候选。每个候选都从自己的批准母版独立生成。相较于给全部母版机械生成四件套，固定闭眼的 `laugh` 与 `thinking` 各省去两次无意义眼睛调用。
 
 ## 五层拆分
 
@@ -37,9 +37,9 @@ core/
 provider/
   work_imagegen | openai_image_api
 image/
-  key selection + cutout + normalize + region masks + forced composite
+  key selection + auto-refined cutout + matte review + normalize + region masks + forced composite
 export/
-  WebGAL full-frame manifest + README + previews + inventory
+  WebGAL full frames + replacement parts + runtime manifests + previews + inventory
 ui/
   base review + pose review + expression review + result gallery
 ```
@@ -47,7 +47,8 @@ ui/
 - `core` 不导入图片 Provider SDK。
 - `provider` 只负责单次生成或编辑。
 - `image` 不信任模型的蒙版边界，只让本地许可蒙版内的像素进入成品。
-- `export` 只接受已批准且哈希未变化的母版与已登记运行时帧。
+- `image` 会尝试多个安全透明阈值，并在主体 alpha 面积损失受限时选择残色更少的版本；标准军姿还必须在明、暗、紫色底上做 AI 视觉复核。
+- `export` 只接受已批准且哈希未变化的母版与已登记运行时帧，并同时导出完整帧与精确矩形替换片。
 - `ui` 不直接跳过批准门；用户明确预授权无人值守时仍逐门记录批准哈希。
 
 ## 四阶段状态机
@@ -110,11 +111,20 @@ runs/<run-id>/
       <slug>_<runtime-id>_base.png
       <slug>_<runtime-id>_mouth_half_open.png
       <slug>_<runtime-id>_mouth_open.png
+      <slug>_<runtime-id>_eyes_half.png
       <slug>_<runtime-id>_eyes_close.png
+    parts/
+      <slug>_<runtime-id>_<state>_part.png
+    runtime/
+      runtime-manifest.json
+      sprite-compositor.js
+      preview.html
     previews/
 ```
 
-`deliverables/figures` 只放 WebGAL 可直接使用的同画布完整帧。局部零件、蒙版、模型源图、提示词和 QA 全在 `work/`，不得混入正式资源目录。
+`deliverables/figures` 只放 WebGAL 可直接使用的同画布完整帧。`deliverables/parts` 放自研运行时所需的精确替换片；它们由已验收完整帧按 `mask_bbox` 裁出，必须通过“清空矩形后按坐标画回”使用。蒙版、模型源图、提示词和 QA 仍在 `work/`，不得混入正式资源目录。
+
+默认关闭 GIF。联系表与可选 GIF 都只是验收材料，实时说话与眨眼由 `runtime/sprite-compositor.js` 根据对白时长和随机眨眼计时完成，并保持透明画布与 PNG 原画质。
 
 WebGAL 当前素材契约见 [webgal-mouth-sync.md](webgal-mouth-sync.md)。
 
@@ -132,7 +142,7 @@ Provider 不得改变提示词构建、批准状态、目录布局或最终合�
 
 ## 一致性与失败处理
 
-1. 每张生成图重新采样实际边框色并用自己的采样色抠图。
+1. 每张生成图重新采样实际边框色并用自己的采样色抠图；标准军姿必须输出四底色复核图，并由 AI 检查发丝残边后才能批准。
 2. 每个姿势拥有独立规范化 transform；其表情复用对应姿势 transform。
 3. 三张姿势必须在完整身体轴线、手势与重心上有明显差异；若缩略图下仍可互换，姿势组不通过。
 4. 表情在映射姿势的脸部以外做漂移比较，失败只重试一次。

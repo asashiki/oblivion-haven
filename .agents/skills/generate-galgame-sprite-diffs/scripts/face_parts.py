@@ -168,7 +168,6 @@ def command_compose(args: argparse.Namespace) -> None:
     allow_array = np.asarray(allow, dtype=np.uint8)
     bbox = mask_bbox(allow_array)
     base_array = np.asarray(base, dtype=np.uint8)
-    candidate_array = np.asarray(candidate, dtype=np.uint8)
     frame_array = np.asarray(frame, dtype=np.uint8)
 
     outside = allow_array == 0
@@ -186,13 +185,10 @@ def command_compose(args: argparse.Namespace) -> None:
 
     part_sha = None
     if args.part is not None:
-        part_array = candidate_array.copy()
-        part_array[..., 3] = (
-            part_array[..., 3].astype(np.uint16)
-            * allow_array.astype(np.uint16)
-            // 255
-        ).astype(np.uint8)
-        part = Image.fromarray(part_array, mode="RGBA").crop(bbox)
+        # Store an exact rectangular replacement crop from the accepted final
+        # frame. A runtime can clear this rectangle and draw the patch at bbox
+        # x/y to reproduce the same pixels without guessing blend behavior.
+        part = frame.crop(bbox)
         args.part.parent.mkdir(parents=True, exist_ok=True)
         part.save(args.part, format="PNG")
         part_sha = sha256(args.part)
@@ -210,6 +206,7 @@ def command_compose(args: argparse.Namespace) -> None:
         "mask": str(args.mask),
         "frame": str(args.frame),
         "part": str(args.part) if args.part is not None else None,
+        "part_mode": "replace-rect" if args.part is not None else None,
         "size": list(base.size),
         "mask_bbox": list(bbox),
         "outside_mask_changed_pixels": outside_changed,

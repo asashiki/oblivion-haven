@@ -175,6 +175,12 @@ def load_config(path: Path) -> dict:
     chroma = data["chroma_key"]
     if not 0 <= chroma["transparent_distance"] < chroma["opaque_distance"] <= 255:
         raise SystemExit("色键阈值须满足 0 <= transparent_distance < opaque_distance <= 255")
+    if not isinstance(chroma.get("auto_refine"), bool):
+        raise SystemExit("chroma_key.auto_refine 必须是布尔值")
+    if not 0 <= float(chroma.get("auto_refine_max_alpha_loss", -1)) <= 0.20:
+        raise SystemExit("chroma_key.auto_refine_max_alpha_loss 须在 0 到 0.20 之间")
+    if not 0 <= float(data["qa"].get("max_residual_key_edge_fraction", -1)) <= 1:
+        raise SystemExit("qa.max_residual_key_edge_fraction 须在 0 到 1 之间")
 
     workflow = data["workflow"]
     gates = (
@@ -198,6 +204,11 @@ def load_config(path: Path) -> dict:
             raise SystemExit(f"output.{key} 必须是安全的相对目录名")
     if output["work_dir"] == output["deliverables_dir"]:
         raise SystemExit("work_dir 与 deliverables_dir 不可相同")
+    for key in ("export_local_parts", "include_compositor_runtime", "make_contact_sheet", "make_demo_gifs"):
+        if not isinstance(output.get(key), bool):
+            raise SystemExit(f"output.{key} 必须是布尔值")
+    if output["include_compositor_runtime"] and not output["export_local_parts"]:
+        raise SystemExit("启用合成运行时必须同时启用 export_local_parts")
     return data
 
 
@@ -302,7 +313,8 @@ Create the distinct neutral “{pose['label']}” runtime pose:
 
 Expression and identity:
 - Both eyes naturally open and generally directed toward the viewer.
-- Mouth fully closed; calm neutral face; no blush, tears, sweat, anger, surprise, or emotional cue.
+- Mouth fully closed; a faint friendly closed-lip curve is allowed, but no open mouth or emotion-coded smile.
+- Keep an otherwise calm normal face with no blush, tears, sweat, anger, surprise, or other emotional cue.
 - Change only body pose, hand placement, body/face angle, weight shift, and unavoidable hair or clothing overlap.
 {common_identity_lock(config)}
 
@@ -341,6 +353,9 @@ Absolute invariants:
 
 def runtime_states(policy: dict) -> list[str]:
     result: list[str] = []
+    for state in policy["extra_states"]:
+        if state.startswith("eyes_") and state not in result:
+            result.append(state)
     if policy["blink"] == "dynamic":
         result.append("eyes_close")
     if policy["mouth_sync"]:
@@ -424,7 +439,9 @@ def main() -> None:
         work / "runtime" / "frames",
         work / "runtime" / "parts",
         deliverables / "figures",
+        deliverables / "parts",
         deliverables / "previews",
+        deliverables / "runtime",
     )
     for directory in directories:
         (out / directory).mkdir(parents=True, exist_ok=True)

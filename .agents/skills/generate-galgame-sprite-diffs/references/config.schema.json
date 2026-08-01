@@ -105,7 +105,9 @@
         "edge_radius",
         "scope",
         "soft_matte",
-        "despill"
+        "despill",
+        "auto_refine",
+        "auto_refine_max_alpha_loss"
       ],
       "properties": {
         "mode": { "enum": ["auto", "fixed"] },
@@ -121,7 +123,9 @@
         "edge_radius": { "type": "integer", "minimum": 0, "maximum": 16 },
         "scope": { "enum": ["all", "border-connected"] },
         "soft_matte": { "type": "boolean" },
-        "despill": { "type": "boolean" }
+        "despill": { "type": "boolean" },
+        "auto_refine": { "type": "boolean" },
+        "auto_refine_max_alpha_loss": { "type": "number", "minimum": 0, "maximum": 0.2 }
       },
       "additionalProperties": false
     },
@@ -185,7 +189,8 @@
         "variant_retry_limit",
         "outside_face_alpha_iou_warn_below",
         "outside_face_rgb_mean_warn_above",
-        "runtime_min_inside_changed_pixels"
+        "runtime_min_inside_changed_pixels",
+        "max_residual_key_edge_fraction"
       ],
       "properties": {
         "face_box": {
@@ -202,7 +207,8 @@
         "variant_retry_limit": { "type": "integer", "minimum": 0, "maximum": 3 },
         "outside_face_alpha_iou_warn_below": { "type": "number", "minimum": 0, "maximum": 1 },
         "outside_face_rgb_mean_warn_above": { "type": "number", "minimum": 0, "maximum": 255 },
-        "runtime_min_inside_changed_pixels": { "type": "integer", "minimum": 1 }
+        "runtime_min_inside_changed_pixels": { "type": "integer", "minimum": 1 },
+        "max_residual_key_edge_fraction": { "type": "number", "minimum": 0, "maximum": 1 }
       },
       "additionalProperties": false
     },
@@ -240,6 +246,8 @@
         "keep_chroma_sources",
         "keep_working_files",
         "keep_local_parts",
+        "export_local_parts",
+        "include_compositor_runtime",
         "make_contact_sheet",
         "make_demo_gifs"
       ],
@@ -249,6 +257,8 @@
         "keep_chroma_sources": { "type": "boolean" },
         "keep_working_files": { "type": "boolean" },
         "keep_local_parts": { "type": "boolean" },
+        "export_local_parts": { "type": "boolean" },
+        "include_compositor_runtime": { "type": "boolean" },
         "make_contact_sheet": { "type": "boolean" },
         "make_demo_gifs": { "type": "boolean" }
       },
