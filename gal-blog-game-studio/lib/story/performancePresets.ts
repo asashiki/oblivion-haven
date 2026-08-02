@@ -141,3 +141,4 @@ export function toWebgalVolume(volume: number | undefined): number | undefined {
   const normalized = volume <= 1 ? volume * 100 : volume;
   return Math.max(0, Math.min(100, Math.round(normalized)));
 }
+
