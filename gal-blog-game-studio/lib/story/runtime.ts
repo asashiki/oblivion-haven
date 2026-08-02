@@ -2,17 +2,19 @@ import type {
   ChoiceOption,
   InputBlock,
   StagePosition,
+  StageTransform,
   StoryBlock,
   StoryMode,
   StoryProject,
   VariableOperation,
 } from "./types";
-import { deepClone } from "./utils";
+import { deepClone, slugify } from "./utils";
 
 export type RuntimeFigure = {
   characterId: string;
   expressionId?: string;
   position: StagePosition;
+  transform?: StageTransform;
   visible: boolean;
 };
 
@@ -31,7 +33,23 @@ export type RuntimeState = {
 };
 
 function initialVariables(project: StoryProject): RuntimeState["variables"] {
-  return Object.fromEntries(project.variables.map((variable) => [variable.name, variable.defaultValue]));
+  return Object.fromEntries([
+    ...project.variables.map((variable) => [variable.name, variable.defaultValue] as const),
+    ...(project.records || []).map((record) => [`record_${slugify(record.name)}`, false] as const),
+  ]);
+}
+
+function recordVariableName(project: StoryProject, recordId: string): string {
+  const record = (project.records || []).find((item) => item.id === recordId);
+  return `record_${slugify(record?.name || recordId)}`;
+}
+
+function routeEdgeEnabled(project: StoryProject, edge: StoryProject["routeMap"]["edges"][number], variables: RuntimeState["variables"]): boolean {
+  if (!evaluate(edge.condition, variables)) return false;
+  const condition = edge.recordCondition;
+  if (!condition?.recordIds.length) return true;
+  const count = condition.recordIds.filter((recordId) => Boolean(variables[recordVariableName(project, recordId)])).length;
+  return condition.mode === "all" ? count === condition.recordIds.length : count >= Math.max(1, condition.minimum || 1);
 }
 
 function variableName(project: StoryProject, variableId: string): string {
@@ -68,6 +86,16 @@ function enterScene(project: StoryProject, state: RuntimeState, sceneId: string,
     state.bgmAssetId = scene.entryStage.bgmAssetId;
     state.figures = (scene.entryStage.figures || []).map((figure) => ({ ...figure, visible: true }));
   }
+}
+
+function enterBlock(project: StoryProject, state: RuntimeState, blockId: string): boolean {
+  const scene = project.scenes.find((item) => item.id === state.sceneId);
+  const blockIndex = scene?.blocks.findIndex((block) => block.id === blockId) ?? -1;
+  if (blockIndex < 0) return false;
+  state.blockIndex = blockIndex;
+  state.currentBlock = undefined;
+  state.waitingFor = undefined;
+  return true;
 }
 
 export function createRuntime(project: StoryProject, sceneId = project.settings.startSceneId, blockIndex = 0): RuntimeState {
@@ -128,6 +156,16 @@ export function stepRuntime(project: StoryProject, inputState: RuntimeState): Ru
     return state;
   }
   if (state.blockIndex >= scene.blocks.length) {
+    const sourceIds = new Set(project.routeMap.nodes.filter((node) => node.sceneId === scene.id).map((node) => node.id));
+    const edge = project.routeMap.edges
+      .filter((item) => sourceIds.has(item.source))
+      .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+      .find((item) => routeEdgeEnabled(project, item, state.variables));
+    const targetSceneId = edge ? project.routeMap.nodes.find((node) => node.id === edge.target)?.sceneId : undefined;
+    if (targetSceneId) {
+      enterScene(project, state, targetSceneId);
+      return stepRuntime(project, state);
+    }
     state.waitingFor = "end";
     state.currentBlock = undefined;
     return state;
@@ -151,8 +189,9 @@ export function stepRuntime(project: StoryProject, inputState: RuntimeState): Ru
         existing.visible = true;
         existing.expressionId = block.expressionId || existing.expressionId;
         existing.position = block.position || existing.position;
+        existing.transform = block.transform || existing.transform;
       } else {
-        state.figures.push({ characterId: block.characterId, expressionId: block.expressionId, position: block.position || "center", visible: true });
+        state.figures.push({ characterId: block.characterId, expressionId: block.expressionId, position: block.position || "center", transform: block.transform, visible: true });
       }
     }
     return stepRuntime(project, state);
@@ -168,8 +207,12 @@ export function stepRuntime(project: StoryProject, inputState: RuntimeState): Ru
   }
   if (block.type === "jump") {
     if (evaluate(block.condition, state.variables)) {
-      const routeScene = project.routeMap.nodes.find((node) => node.id === block.targetRouteNodeId)?.sceneId;
-      enterScene(project, state, block.targetSceneId || routeScene || state.sceneId);
+      if (block.targetBlockId) {
+        enterBlock(project, state, block.targetBlockId);
+      } else {
+        const routeScene = project.routeMap.nodes.find((node) => node.id === block.targetRouteNodeId)?.sceneId;
+        enterScene(project, state, block.targetSceneId || routeScene || state.sceneId);
+      }
     }
     return stepRuntime(project, state);
   }
@@ -179,10 +222,27 @@ export function stepRuntime(project: StoryProject, inputState: RuntimeState): Ru
     return stepRuntime(project, state);
   }
   if (block.type === "dialogue") {
-    const character = project.characters.find((item) => item.id === block.characterId);
-    const existing = state.figures.find((figure) => figure.characterId === block.characterId);
-    if (existing && block.expressionId) existing.expressionId = block.expressionId;
-    state.log.push({ sceneId: scene.id, blockId: block.id, label: character?.displayName || character?.name || "角色", text: interpolate(block.text, state.variables) });
+    const reaction = (block.choiceReactions || []).find((item) => state.variables[`__choice_${slugify(item.choiceBlockId)}`] === item.optionId);
+    const characterId = reaction?.characterId || block.characterId;
+    const character = project.characters.find((item) => item.id === characterId);
+    const existing = state.figures.find((figure) => figure.characterId === characterId);
+    if (existing) {
+      existing.expressionId = reaction?.expressionId || block.expressionId || existing.expressionId;
+      existing.position = reaction?.position || block.position || existing.position;
+      existing.transform = reaction?.transform || block.transform || existing.transform;
+    } else if (reaction?.expressionId || reaction?.position || reaction?.transform || block.expressionId || block.position || block.transform) {
+      state.figures.push({
+        characterId,
+        expressionId: reaction?.expressionId || block.expressionId || character?.defaultExpressionId,
+        position: reaction?.position || block.position || "center",
+        transform: reaction?.transform || block.transform,
+        visible: true,
+      });
+    }
+    state.log.push({ sceneId: scene.id, blockId: block.id, label: character?.displayName || character?.name || "角色", text: interpolate(reaction?.text || block.text, state.variables) });
+    new Set((block.choiceReactions || []).map((item) => item.choiceBlockId)).forEach((choiceBlockId) => {
+      state.variables[`__choice_${slugify(choiceBlockId)}`] = "";
+    });
     state.waitingFor = "advance";
     return state;
   }
@@ -221,9 +281,26 @@ export function chooseRuntime(project: StoryProject, inputState: RuntimeState, o
   if (block?.type !== "choice") return state;
   const option = block.options.find((item) => item.id === optionId);
   if (!option || !evaluate(option.enabledCondition, state.variables)) return state;
+  state.variables[`__choice_${slugify(block.id)}`] = option.id;
+  if (option.recordId) state.variables[recordVariableName(project, option.recordId)] = true;
   (option.operations || []).forEach((operation) => applyVariableOperation(project, state, operation));
   const routeScene = project.routeMap.nodes.find((node) => node.id === option.targetRouteNodeId)?.sceneId;
-  if (option.targetSceneId || routeScene) enterScene(project, state, option.targetSceneId || routeScene!);
+  const choiceTarget = option.targetChoiceGroupId
+    ? project.scenes.flatMap((scene) => scene.blocks.map((candidate) => ({ scene, candidate })))
+      .find((item) => item.candidate.type === "choice" && item.candidate.id === option.targetChoiceGroupId)
+    : undefined;
+  if (choiceTarget) {
+    if (choiceTarget.scene.id !== state.sceneId) enterScene(project, state, choiceTarget.scene.id);
+    enterBlock(project, state, choiceTarget.candidate.id);
+  }
+  else if (option.endScene) {
+    const currentScene = project.scenes.find((scene) => scene.id === state.sceneId);
+    state.blockIndex = currentScene?.blocks.length || 0;
+    state.currentBlock = undefined;
+    state.waitingFor = undefined;
+  }
+  else if (option.targetBlockId) enterBlock(project, state, option.targetBlockId);
+  else if (option.targetSceneId || routeScene) enterScene(project, state, option.targetSceneId || routeScene!);
   return stepRuntime(project, state);
 }
 

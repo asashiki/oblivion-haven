@@ -8,7 +8,7 @@ const Base = z.object({
   label: z.string().optional(),
   notes: z.string().optional(),
   disabled: z.boolean().optional(),
-  source: z.enum(["human", "ai", "import", "native"]).optional(),
+  source: z.enum(["human", "ai", "import", "native", "system"]).optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });
@@ -74,6 +74,7 @@ export const StoryProjectSchema = z.object({
   }).passthrough()),
   assets: z.array(z.object({ id: Id, kind: z.string(), name: z.string(), path: z.string(), aliases: z.array(z.string()) }).passthrough()),
   variables: z.array(z.object({ id: Id, name: z.string(), type: z.string(), defaultValue: z.union([z.string(), z.number(), z.boolean()]), scope: z.string() }).passthrough()),
+  records: z.array(z.object({ id: Id, name: z.string().min(1), description: z.string().optional() })).optional(),
   routeMap: z.object({
     layoutDirection: z.enum(["top-down", "left-right"]).optional(),
     nodes: z.array(z.object({ id: Id, kind: z.string(), title: z.string(), x: z.number(), y: z.number() }).passthrough()),
@@ -106,6 +107,10 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
   const characterIds = new Set(project.characters.map((character) => character.id));
   const assetIds = new Set(project.assets.map((asset) => asset.id));
   const variableIds = new Set(project.variables.map((variable) => variable.id));
+  const recordIds = new Set((project.records || []).map((record) => record.id));
+  const choiceGroupIds = new Set(project.scenes.flatMap((scene) => (
+    scene.blocks.filter((block) => block.type === "choice").map((block) => block.id)
+  )));
   const savePointIds = new Set(project.savePoints.map((point) => point.id));
   const routeNodeIds = new Set(project.routeMap.nodes.map((node) => node.id));
   const aiConfigIds = new Set(project.aiConfigs.map((config) => config.id));
@@ -124,6 +129,7 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
     ...project.characters.flatMap((character) => character.expressions.map((expression) => expression.id)),
     ...project.assets.map((item) => item.id),
     ...project.variables.map((item) => item.id),
+    ...(project.records || []).map((item) => item.id),
     ...project.routeMap.nodes.map((item) => item.id),
     ...project.routeMap.edges.map((item) => item.id),
     ...project.endings.map((item) => item.id),
@@ -167,10 +173,46 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
           message: `${character.displayName} 的表情「${expression.name}」引用了不存在的资源。`,
         });
       }
+      const animation = expression.webgalAnimation;
+      if (animation) {
+        const dynamicRefs = [
+          animation.mouthOpenAssetId,
+          animation.mouthHalfOpenAssetId,
+          animation.mouthCloseAssetId,
+          animation.eyesOpenAssetId,
+          animation.eyesCloseAssetId,
+        ].filter((id): id is string => Boolean(id));
+        dynamicRefs.forEach((assetId) => {
+          if (!assetIds.has(assetId)) {
+            addReferenceError(
+              `expression-animation-${expression.id}-${assetId}`,
+              "FIGURE_ANIMATION_ASSET_MISSING",
+              `${character.displayName} 的动态差分「${expression.name}」引用了不存在的帧。`,
+            );
+          }
+        });
+        if (animation.mouthSync && !animation.mouthOpenAssetId) {
+          diagnostics.push({
+            id: `expression-mouth-${expression.id}`,
+            severity: "warning",
+            code: "MOUTH_SYNC_INCOMPLETE",
+            message: `${character.displayName} 的「${expression.name}」启用了动嘴，但没有张嘴帧。`,
+          });
+        }
+        if (animation.blink === "dynamic" && !animation.eyesCloseAssetId) {
+          diagnostics.push({
+            id: `expression-eyes-${expression.id}`,
+            severity: "warning",
+            code: "BLINK_INCOMPLETE",
+            message: `${character.displayName} 的「${expression.name}」启用了眨眼，但没有闭眼帧。`,
+          });
+        }
+      }
     });
   });
 
   project.scenes.forEach((scene) => {
+    const sceneBlockIds = new Set(scene.blocks.map((block) => block.id));
     scene.blocks.forEach((block) => {
       if (block.disabled) return;
       if (block.type === "dialogue" && !characterIds.has(block.characterId)) {
@@ -202,11 +244,20 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
       }
       if (block.type === "choice") {
         block.options.forEach((option) => {
+          if (option.targetBlockId && !sceneBlockIds.has(option.targetBlockId)) {
+            diagnostics.push({ id: `choice-block-${option.id}`, severity: "error", code: "CHOICE_BLOCK_MISSING", message: `选项「${option.label}」的片段内目标不存在。`, sceneId: scene.id, blockId: block.id });
+          }
           if (option.targetSceneId && !sceneIds.has(option.targetSceneId)) {
             diagnostics.push({ id: `choice-${option.id}`, severity: "error", code: "CHOICE_TARGET_MISSING", message: `选项「${option.label}」的目标场景不存在。`, sceneId: scene.id, blockId: block.id });
           }
           if (option.targetRouteNodeId && !routeNodeIds.has(option.targetRouteNodeId)) {
             addReferenceError(`choice-route-${option.id}`, "CHOICE_ROUTE_MISSING", `选项「${option.label}」的路线节点不存在。`, scene.id, block.id);
+          }
+          if (option.targetChoiceGroupId && !choiceGroupIds.has(option.targetChoiceGroupId)) {
+            addReferenceError(`choice-group-${option.id}`, "CHOICE_GROUP_MISSING", `选项「${option.label}」指向的选项组不存在。`, scene.id, block.id);
+          }
+          if (option.recordId && !recordIds.has(option.recordId)) {
+            addReferenceError(`choice-record-${option.id}`, "STORY_RECORD_MISSING", `选项「${option.label}」写入的记录不存在。`, scene.id, block.id);
           }
           (option.operations || []).forEach((operation, index) => {
             if (!variableIds.has(operation.variableId)) addReferenceError(`choice-var-${option.id}-${index}`, "VARIABLE_MISSING", `选项「${option.label}」修改了不存在的变量。`, scene.id, block.id);
@@ -224,9 +275,10 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
         });
       }
       if (block.type === "jump") {
+        if (block.targetBlockId && !sceneBlockIds.has(block.targetBlockId)) addReferenceError(`jump-block-${block.id}`, "JUMP_BLOCK_MISSING", "片段内跳转目标不存在。", scene.id, block.id);
         if (block.targetSceneId && !sceneIds.has(block.targetSceneId)) addReferenceError(`jump-${block.id}`, "JUMP_TARGET_MISSING", "跳转目标场景不存在。", scene.id, block.id);
         if (block.targetRouteNodeId && !routeNodeIds.has(block.targetRouteNodeId)) addReferenceError(`jump-route-${block.id}`, "JUMP_ROUTE_MISSING", "跳转目标路线节点不存在。", scene.id, block.id);
-        if (!block.targetSceneId && !block.targetRouteNodeId) addReferenceError(`jump-empty-${block.id}`, "JUMP_TARGET_EMPTY", "跳转块没有设置目标。", scene.id, block.id);
+        if (!block.targetBlockId && !block.targetSceneId && !block.targetRouteNodeId) addReferenceError(`jump-empty-${block.id}`, "JUMP_TARGET_EMPTY", "跳转块没有设置目标。", scene.id, block.id);
       }
       if (block.type === "blog-action") {
         if (block.resultVariableId && !variableIds.has(block.resultVariableId)) addReferenceError(`blog-var-${block.id}`, "VARIABLE_MISSING", "Blog 动作的结果变量不存在。", scene.id, block.id);
@@ -260,6 +312,17 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
   project.routeMap.edges.forEach((edge) => {
     if (!routeNodeIds.has(edge.source) || !routeNodeIds.has(edge.target)) {
       diagnostics.push({ id: `edge-${edge.id}`, severity: "error", code: "ROUTE_EDGE_DANGLING", message: "路线图中存在悬空连线。" });
+    }
+    edge.recordCondition?.recordIds.forEach((recordId) => {
+      if (!recordIds.has(recordId)) {
+        addReferenceError(`edge-record-${edge.id}-${recordId}`, "STORY_RECORD_MISSING", "剧情主干连线引用了不存在的一次性记录。");
+      }
+    });
+    if (edge.recordCondition && edge.recordCondition.recordIds.length === 0) {
+      diagnostics.push({ id: `edge-record-empty-${edge.id}`, severity: "warning", code: "ROUTE_RECORD_CONDITION_EMPTY", message: "主干记录条件尚未选择任何记录，将按无条件出口处理。" });
+    }
+    if (edge.recordCondition?.mode === "at-least" && (edge.recordCondition.minimum || 1) > edge.recordCondition.recordIds.length) {
+      diagnostics.push({ id: `edge-record-minimum-${edge.id}`, severity: "error", code: "ROUTE_RECORD_MINIMUM_INVALID", message: "主干条件要求的记录数量超过了已选择记录数。" });
     }
   });
 

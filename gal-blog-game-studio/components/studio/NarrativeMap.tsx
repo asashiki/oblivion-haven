@@ -13,6 +13,7 @@ import {
   NodeProps,
   Position,
   ReactFlow,
+  useNodesState,
 } from "@xyflow/react";
 import {
   BookOpen,
@@ -28,7 +29,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { layoutRoutesTopDown, routeDisplayPosition, routeStoredPosition } from "@/lib/story/routeLayout";
 import type { RouteEdge, RouteNode, RouteNodeKind, StoryProject } from "@/lib/story/types";
@@ -98,7 +99,7 @@ function RouteNodeCard({ data }: NodeProps<Node<RouteNodeData>>) {
 const nodeTypes = { route: RouteNodeCard };
 
 export function NarrativeMap({ project, onChange, onOpenScene }: Props) {
-  const [playerView, setPlayerView] = useState(false);
+  const playerView = false;
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [layoutRevision, setLayoutRevision] = useState(0);
@@ -108,7 +109,7 @@ export function NarrativeMap({ project, onChange, onOpenScene }: Props) {
     .filter((node) => !playerView || !node.hiddenFromPlayer)
     .map((node) => node.id)), [playerView, project.routeMap.nodes]);
 
-  const nodes = useMemo<Node<RouteNodeData>[]>(() => project.routeMap.nodes
+  const projectNodes = useMemo<Node<RouteNodeData>[]>(() => project.routeMap.nodes
     .filter((node) => visibleNodeIds.has(node.id))
     .map((route) => {
       const scene = project.scenes.find((item) => item.id === route.sceneId);
@@ -128,6 +129,11 @@ export function NarrativeMap({ project, onChange, onOpenScene }: Props) {
         selected: route.id === selectedNodeId,
       };
     }), [direction, playerView, project.characters, project.scenes, project.routeMap.nodes, selectedNodeId, visibleNodeIds]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(projectNodes);
+
+  useEffect(() => {
+    setNodes(projectNodes);
+  }, [projectNodes, setNodes]);
 
   const edges = useMemo<Edge[]>(() => project.routeMap.edges
     .filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target) && (!playerView || !edge.hiddenFromPlayer))
@@ -136,7 +142,6 @@ export function NarrativeMap({ project, onChange, onOpenScene }: Props) {
       ariaLabel: `剧情分支 ${edge.label || edge.condition || `${edge.source} 到 ${edge.target}`}`,
       source: edge.source,
       target: edge.target,
-      type: "smoothstep",
       label: edge.label || edge.condition,
       selected: edge.id === selectedEdgeId,
       markerEnd: { type: MarkerType.ArrowClosed, color: edge.id === selectedEdgeId ? "#d8c67b" : "#7181b9" },
@@ -250,17 +255,11 @@ export function NarrativeMap({ project, onChange, onOpenScene }: Props) {
         <button className="map-layout-button" onClick={applyVerticalLayout} title="按故事先后自动排成竖向主轴，分支向左右展开">
           <LayoutPanelTop size={14} /> 自动竖排
         </button>
-        <div className="segmented">
-          <button className={!playerView ? "active" : ""} onClick={() => setPlayerView(false)}>作者视图</button>
-          <button className={playerView ? "active" : ""} onClick={() => setPlayerView(true)}>玩家视图</button>
+        <div className="map-add">
+          <button onClick={() => addNode("scene")}><Plus size={14} /> 场景</button>
+          <button onClick={() => addNode("character-story")}><Plus size={14} /> 角色故事</button>
+          <button onClick={() => addNode("ending")}><Plus size={14} /> 结局</button>
         </div>
-        {!playerView && (
-          <div className="map-add">
-            <button onClick={() => addNode("scene")}><Plus size={14} /> 场景</button>
-            <button onClick={() => addNode("character-story")}><Plus size={14} /> 角色故事</button>
-            <button onClick={() => addNode("ending")}><Plus size={14} /> 结局</button>
-          </div>
-        )}
       </div>
       <div className="map-body">
         <div className="map-canvas">
@@ -269,15 +268,20 @@ export function NarrativeMap({ project, onChange, onOpenScene }: Props) {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
             fitView
             fitViewOptions={{ padding: 0.18 }}
             minZoom={0.3}
             maxZoom={1.8}
+            nodeDragThreshold={3}
             nodesDraggable={!playerView}
             nodesConnectable={!playerView}
             nodesFocusable
             edgesFocusable
             elementsSelectable
+            elevateNodesOnSelect={false}
+            onlyRenderVisibleElements
+            proOptions={{ hideAttribution: true }}
             onConnect={connect}
             onNodeClick={(_, node) => {
               setSelectedEdgeId(undefined);

@@ -1,6 +1,5 @@
-changeBg:tea-room-night.webp -duration=800;
-bgm:quiet-tea.ogg -volume=0.65;
-changeFigure:alice/shy.png -id=char-alice -right -enter=enter-from-right -duration=650;
-爱丽丝:主人今天回来得有些晚呢。;
-changeFigure:alice/smile.png -id=char-alice;
-爱丽丝:不过茶还温着，所以不算太晚。;
+changeBg:project-assets/alice-tea-room-day.png -duration=800;
+changeFigure:project-assets/alice-standard-normal.png -id=char-alice -right -enter=enter-from-right -duration=650;
+爱丽丝:欢迎回来，主人。今天的茶会已经准备好了。;
+changeFigure:project-assets/alice-chibi-normal.png -id=char-alice -center;
+爱丽丝:今天先试试这场小茶会吧。;

@@ -6,7 +6,8 @@
 
 ```mermaid
 flowchart TD
-  Human["人类编辑器"] --> IR["Story IR 1.0"]
+  Human["简单 / 高级编辑器"] --> IR["Story IR 1.0"]
+  Director["本地导演规则（非模型）"] --> IR
   Import["多格式导入器"] --> IR
   AI["AI 工具 / StoryPatch"] --> IR
   IR --> Validate["校验与资源别名解析"]
@@ -25,26 +26,30 @@ flowchart TD
 | 完整性层 | `lib/story/schema.ts` | Zod 结构校验、引用校验、资源缺失诊断 |
 | 变更层 | `lib/story/patch.ts` | 可逆 set/insert/remove/move/test 操作 |
 | AI 工具层 | `lib/story/aiTools.ts` | 将语义工具调用翻译为 StoryPatch |
+| 本地导演规则层 | `lib/story/director.ts` | 用确定性规则从片段概括和语义素材卡生成局部验收草稿 |
 | 导入层 | `lib/story/importers.ts` | JSON、Markdown、Ren'Py-like、WebGAL、标签、自然语言 |
 | 演出预设层 | `lib/story/performancePresets.ts` | WebGAL Terre 官方动画表、友好别名、音量规范化 |
 | 路线布局层 | `lib/story/routeLayout.ts` | 月姬式自上而下 DAG 布局与旧坐标兼容 |
 | 编译层 | `lib/story/compiler.ts` | Story IR 到 WebGAL 4.6.2，连同官方动画文件打包 |
-| 运行层 | `lib/story/runtime.ts` | 不依赖引擎的快速 Story IR 预览与调试 |
+| 实机预览层 | `lib/webgalPreview.ts` | 浏览器内编译、虚拟文件缓存与官方 WebGAL iframe |
+| 回退运行层 | `lib/story/runtime.ts` | 不依赖引擎的 Story IR 快速调试，不代表最终画面 |
 | 适配层 | `lib/integrations/*` | Terre API/WS 与安全 postMessage |
-| 界面层 | `components/studio/*` | 编辑、地图、资源、AI、预览、导出 |
+| 本地素材层 | `lib/localAssetStore.ts` | 使用 IndexedDB 保存用户上传文件，不把 Blob 塞进 Story IR |
+| 界面层 | `components/studio/*` | 亮色三步简单模式与完整高级工作台 |
 
 ## 编辑与发布环境
 
 编辑环境支持两种后端：
 
-1. 纯浏览器：Story IR 保存在本地，内建模拟器预览，导出 ZIP。
+1. 纯浏览器：Story IR 保存在 localStorage，上传文件保存在 IndexedDB；编译产物和素材写入同源 Cache Storage，由 Service Worker 提供给官方 WebGAL iframe，另可导出 ZIP 与资源清单。
 2. 本地 Terre：Studio 调用 Terre 4.6.x API 创建工程、写入编译文件，并通过官方编辑预览 WebSocket 同步场景。
 
 发布环境不依赖 Terre。导出包是静态文件，可放在 GitHub Pages、Cloudflare Pages 或任意静态托管，并通过 iframe 嵌入 gal-blog。
 
 ## AI 作者模式与实时模式
 
-- 作者模式：AI 使用语义工具或 StoryPatch 对既有块做局部改动；操作进入历史，可撤销、比较和重新编译。
+- 简单作者模式当前只有确定性本地规则，用于验证 Patch、素材约束和预览闭环，不冒充模型推理。真实 AI Provider 接入后再读取当前片段、前后路线、角色设定和素材卡语义。
+- 专业作者模式：AI 使用语义工具或 StoryPatch 对既有块做局部改动；操作进入历史，可撤销、比较和重新编译。
 - 实时模式：上下文由角色 persona、当前场景、舞台状态、变量、历史和允许工具组成。模型只能返回有限数量的受约束操作。操作先校验，再进入 Story IR、预览和保存链路。
 - Provider 是可插拔边界。第一版不在浏览器保存密钥；将模型服务放在可信后端，然后调用 Studio API。
 

@@ -48,6 +48,16 @@ export type CharacterExpression = {
   assetId: Id;
   aliases: string[];
   tags?: string[];
+  webgalAnimation?: {
+    mouthSync?: boolean;
+    blink?: "dynamic" | "fixed-open" | "fixed-closed" | "none";
+    mouthOpenAssetId?: Id;
+    mouthHalfOpenAssetId?: Id;
+    mouthCloseAssetId?: Id;
+    eyesOpenAssetId?: Id;
+    eyesCloseAssetId?: Id;
+    sourcePackageId?: string;
+  };
 };
 
 export type StoryCharacter = {
@@ -92,7 +102,7 @@ export type BlockBase = {
   label?: string;
   notes?: string;
   disabled?: boolean;
-  source?: "human" | "ai" | "import" | "native";
+  source?: "human" | "ai" | "import" | "native" | "system";
   createdAt?: string;
   updatedAt?: string;
 };
@@ -104,8 +114,19 @@ export type DialogueBlock = BlockBase & {
   expressionId?: Id;
   voiceAssetId?: Id;
   position?: StagePosition;
+  transform?: StageTransform;
   enter?: TransitionSpec;
   textEffect?: "none" | "shake" | "fade" | "typewriter";
+  /** Optional one-line reactions selected by the immediately preceding choice group. */
+  choiceReactions?: Array<{
+    choiceBlockId: Id;
+    optionId: Id;
+    text: string;
+    characterId?: Id;
+    expressionId?: Id;
+    position?: StagePosition;
+    transform?: StageTransform;
+  }>;
 };
 
 export type NarrationBlock = BlockBase & {
@@ -122,6 +143,7 @@ export type StageBlock = BlockBase & {
     | "play-bgm"
     | "stop-bgm"
     | "play-sfx"
+    | "play-video"
     | "enter-character"
     | "exit-character"
     | "move-character"
@@ -151,8 +173,16 @@ export type VariableOperation = {
 export type ChoiceOption = {
   id: Id;
   label: string;
+  /** Jump to another block inside the current scene without exposing it as an outer route node. */
+  targetBlockId?: Id;
   targetSceneId?: Id;
   targetRouteNodeId?: Id;
+  /** Globally unique choice block id. It may point inside this scene or into another scene. */
+  targetChoiceGroupId?: Id;
+  /** Finish this scene and let the outer story-map edges decide what follows. */
+  endScene?: boolean;
+  /** A boolean story record. Setting it repeatedly is idempotent. */
+  recordId?: Id;
   condition?: string;
   enabledCondition?: string;
   hidden?: boolean;
@@ -161,6 +191,8 @@ export type ChoiceOption = {
 
 export type ChoiceBlock = BlockBase & {
   type: "choice";
+  /** Stable author-facing number such as S02-Q01. */
+  groupCode?: string;
   prompt?: string;
   options: ChoiceOption[];
 };
@@ -203,6 +235,8 @@ export type VariableBlock = BlockBase & {
 
 export type JumpBlock = BlockBase & {
   type: "jump";
+  /** Internal scene jump used for local menus, loops, and retry flows. */
+  targetBlockId?: Id;
   targetSceneId?: Id;
   targetRouteNodeId?: Id;
   condition?: string;
@@ -348,8 +382,19 @@ export type RouteEdge = {
   target: Id;
   label?: string;
   condition?: string;
+  recordCondition?: {
+    recordIds: Id[];
+    mode: "all" | "at-least";
+    minimum?: number;
+  };
   hiddenFromPlayer?: boolean;
   priority?: number;
+};
+
+export type StoryRecord = {
+  id: Id;
+  name: string;
+  description?: string;
 };
 
 export type StoryEnding = {
@@ -416,6 +461,8 @@ export type StoryProject = {
   characters: StoryCharacter[];
   assets: StoryAsset[];
   variables: StoryVariable[];
+  /** One-time boolean facts earned through player choices. */
+  records?: StoryRecord[];
   routeMap: {
     layoutDirection?: "top-down" | "left-right";
     nodes: RouteNode[];

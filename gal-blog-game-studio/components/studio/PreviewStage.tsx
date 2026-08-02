@@ -1,7 +1,8 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- runtime assets may be IndexedDB blob URLs */
 
-import { Bot, Check, ChevronRight, ExternalLink, RotateCcw, X } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { Bot, Check, ChevronRight, ExternalLink, LoaderCircle, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   choiceEnabled,
@@ -15,12 +16,16 @@ import {
   visibleChoices,
   type RuntimeState,
 } from "@/lib/story/runtime";
+import { resolveRegisteredAssetUrl } from "@/lib/assetUrl";
+import { readLocalAssetFile } from "@/lib/localAssetStore";
 import type { StoryProject } from "@/lib/story/types";
+import { prepareWebGalPreview } from "@/lib/webgalPreview";
 
 type Props = {
   project: StoryProject;
   sceneId: string;
   compact?: boolean;
+  restartKey?: string | number;
   onBridgeEvent?: (message: string) => void;
 };
 
@@ -29,12 +34,51 @@ function assetLabel(project: StoryProject, id?: string): string {
 }
 
 function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent }: Props) {
+  const initialChapter = project.chapters.find((chapter) => chapter.sceneIds[0] === sceneId);
+  const initialChapterIndex = initialChapter ? project.chapters.findIndex((chapter) => chapter.id === initialChapter.id) : -1;
   const [runtime, setRuntime] = useState<RuntimeState>(() => stepRuntime(project, createRuntime(project, sceneId)));
   const [input, setInput] = useState("");
+  const [showChapterIntro, setShowChapterIntro] = useState(Boolean(initialChapter));
+  const [localAssetUrls, setLocalAssetUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!showChapterIntro) return;
+    const timer = window.setTimeout(() => setShowChapterIntro(false), compact ? 1100 : 1700);
+    return () => window.clearTimeout(timer);
+  }, [compact, showChapterIntro]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const createdUrls: string[] = [];
+    const loadFiles = async () => {
+      const entries = await Promise.all(project.assets
+        .filter((asset) => asset.metadata?.localFile)
+        .map(async (asset) => {
+          try {
+            const stored = await readLocalAssetFile(asset.id);
+            if (!stored || cancelled) return undefined;
+            const url = URL.createObjectURL(stored.file);
+            createdUrls.push(url);
+            return [asset.id, url] as const;
+          } catch {
+            return undefined;
+          }
+        }));
+      if (!cancelled) {
+        setLocalAssetUrls(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
+      }
+    };
+    void loadFiles();
+    return () => {
+      cancelled = true;
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [project.assets]);
 
   const scene = project.scenes.find((item) => item.id === runtime.sceneId);
   const block = runtime.currentBlock;
   const background = project.assets.find((asset) => asset.id === runtime.backgroundAssetId);
+  const backgroundUrl = resolveRegisteredAssetUrl(background, localAssetUrls);
   const bgKey = background?.id || "none";
   const currentDialogue = block?.type === "dialogue"
     ? {
@@ -71,18 +115,35 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
   return (
     <section className={`preview-stage ${compact ? "preview-stage--compact" : ""}`} data-bg={bgKey}>
       <div className="preview-stage__backdrop">
-        <div className="preview-stage__light preview-stage__light--one" />
-        <div className="preview-stage__light preview-stage__light--two" />
-        <div className="preview-stage__architecture">
-          <span />
-          <span />
-          <span />
-        </div>
+        {backgroundUrl ? (
+          <img className="preview-stage__background-image" src={backgroundUrl} alt={background?.name || "剧情背景"} />
+        ) : (
+          <>
+            <div className="preview-stage__light preview-stage__light--one" />
+            <div className="preview-stage__light preview-stage__light--two" />
+            <div className="preview-stage__architecture">
+              <span />
+              <span />
+              <span />
+            </div>
+          </>
+        )}
+        <div className="preview-stage__vignette" />
         <div className="preview-stage__caption">
-          <span>BACKGROUND</span>
+          <span>{backgroundUrl ? "背景素材" : "尚未设置背景"}</span>
           {assetLabel(project, runtime.backgroundAssetId)}
         </div>
       </div>
+
+      {showChapterIntro && initialChapter && (
+        <button className="chapter-intro-card" onClick={() => setShowChapterIntro(false)}>
+          <span>CHAPTER {String(initialChapterIndex + 1).padStart(2, "0")}</span>
+          <i />
+          <strong>{initialChapter.name}</strong>
+          {initialChapter.description && <p>{initialChapter.description}</p>}
+          <small>点击跳过</small>
+        </button>
+      )}
 
       <header className="preview-stage__hud">
         <div>
@@ -98,17 +159,25 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
         {runtime.figures.filter((figure) => figure.visible).map((figure) => {
           const character = project.characters.find((item) => item.id === figure.characterId);
           const expression = character?.expressions.find((item) => item.id === figure.expressionId);
+          const figureAsset = project.assets.find((asset) => asset.id === expression?.assetId);
+          const figureUrl = resolveRegisteredAssetUrl(figureAsset, localAssetUrls);
+          const previewScale = typeof figureAsset?.metadata?.previewScale === "number"
+            ? figureAsset.metadata.previewScale
+            : 1;
           return (
-            <div className={`preview-figure preview-figure--${figure.position}`} key={figure.characterId}>
-              <div className="preview-figure__halo" />
-              <div className="preview-figure__head">
-                <span />
-              </div>
-              <div className="preview-figure__body" />
-              <div className="preview-figure__label">
-                <strong>{character?.displayName || "未知角色"}</strong>
-                <span>{expression?.name || "默认表情"} · {figure.position}</span>
-              </div>
+            <div
+              className={`preview-figure preview-figure--${figure.position}`}
+              key={figure.characterId}
+              style={{ "--figure-scale": previewScale } as React.CSSProperties}
+            >
+              {figureUrl ? (
+                <img className="preview-figure__image" src={figureUrl} alt={`${character?.displayName || "角色"} · ${expression?.name || "默认立绘"}`} />
+              ) : (
+                <div className="preview-figure__missing">
+                  <strong>{character?.displayName || "未知角色"}</strong>
+                  <span>{expression?.name || "未绑定立绘"}</span>
+                </div>
+              )}
             </div>
           );
         })}
@@ -211,14 +280,143 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
       )}
 
       <footer className="preview-stage__footer">
-        <span>BGM · {assetLabel(project, runtime.bgmAssetId)}</span>
+        <span>{runtime.bgmAssetId ? `BGM · ${assetLabel(project, runtime.bgmAssetId)}` : "静音 · 尚未上传 BGM"}</span>
         <span>BLOCK {Math.max(0, runtime.blockIndex)}/{scene?.blocks.length || 0}</span>
-        <span><ExternalLink size={12} /> Blog Bridge ready</span>
+        <span>{project.settings.blogBridge.enabled ? <><ExternalLink size={12} /> Blog Bridge 已启用</> : `${project.assets.length} 个真实素材`}</span>
+      </footer>
+    </section>
+  );
+}
+
+function WebGalPreviewStage(props: Props) {
+  const { project, sceneId, compact, restartKey = 0, onBridgeEvent } = props;
+  const previewKey = `${project.id}:${project.updatedAt}:${sceneId}:${restartKey}`;
+  const [previewState, setPreviewState] = useState<{
+    key: string;
+    url?: string;
+    warnings: string[];
+    error?: string;
+    loaded: boolean;
+  }>({ key: "", warnings: [], loaded: false });
+  const [quickFallbackKey, setQuickFallbackKey] = useState<string>();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const currentState = previewState.key === previewKey
+    ? previewState
+    : { key: previewKey, warnings: [], loaded: false };
+  const showQuickFallback = quickFallbackKey === previewKey;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void prepareWebGalPreview(project, sceneId)
+      .then((result) => {
+        if (cancelled) return;
+        setPreviewState({
+          key: previewKey,
+          url: result.url,
+          warnings: result.warnings,
+          loaded: false,
+        });
+      })
+      .catch((reason) => {
+        if (cancelled) return;
+        setPreviewState({
+          key: previewKey,
+          warnings: [],
+          error: reason instanceof Error ? reason.message : "WebGAL 实机预览准备失败",
+          loaded: false,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewKey, project, sceneId]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as { channel?: string; type?: string; payload?: unknown } | undefined;
+      if (!data || data.channel !== project.settings.blogBridge.channel) return;
+      if (data.type === "webgal-preview-started") {
+        setPreviewState((state) => (
+          state.key === previewKey ? { ...state, loaded: true, error: undefined } : state
+        ));
+      }
+      onBridgeEvent?.(`${data.type || "bridge-event"}${data.payload ? " → WebGAL" : ""}`);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [onBridgeEvent, previewKey, project.settings.blogBridge.channel]);
+
+  useEffect(() => {
+    if (!currentState.url || currentState.loaded) return;
+    const timer = window.setTimeout(() => {
+      setPreviewState((state) => (
+        state.key === previewKey && !state.loaded
+          ? {
+              key: previewKey,
+              warnings: state.warnings,
+              error: "WebGAL 未能在限定时间内直接进入所选片段",
+              loaded: false,
+            }
+          : state
+      ));
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [currentState.loaded, currentState.url, previewKey]);
+
+  if (showQuickFallback) {
+    return (
+      <div className="webgal-preview-shell">
+        <div className="webgal-preview-note webgal-preview-note--fallback">
+          <TriangleAlert size={14} />
+          <span>当前显示的是 Story IR 快速预览，不代表最终 WebGAL 画面。</span>
+          <button onClick={() => setQuickFallbackKey(undefined)}>返回实机预览</button>
+        </div>
+        <PreviewStageSession key={`${sceneId}:${project.updatedAt}:${restartKey}`} {...props} />
+      </div>
+    );
+  }
+
+  return (
+    <section className={`webgal-preview-shell ${compact ? "webgal-preview-shell--compact" : ""}`}>
+      <div className="webgal-preview-frame">
+        {currentState.url ? (
+          <iframe
+            ref={iframeRef}
+            src={currentState.url}
+            title="WebGAL 实机预览"
+            allow="autoplay; fullscreen"
+          />
+        ) : (
+          <div className="webgal-preview-state">
+            {currentState.error ? <TriangleAlert size={24} /> : <LoaderCircle className="is-spinning" size={24} />}
+            <strong>{currentState.error ? "实机预览暂不可用" : "正在编译并启动 WebGAL"}</strong>
+            <p>{currentState.error || "场景脚本、资源与转场将交给官方 WebGAL 4.6.2 运行。"}</p>
+            {currentState.error && (
+              <button onClick={() => setQuickFallbackKey(previewKey)}>
+                临时打开快速预览
+              </button>
+            )}
+          </div>
+        )}
+        {currentState.url && !currentState.loaded && (
+          <div className="webgal-preview-loading">
+            <LoaderCircle className="is-spinning" size={20} />
+            <span>WebGAL 正在载入场景…</span>
+          </div>
+        )}
+      </div>
+      <footer className="webgal-preview-meta">
+        <span><i className="status-dot status-dot--live" /> 官方 WebGAL 实机</span>
+        <span>{currentState.warnings.length ? currentState.warnings.join(" · ") : "背景、立绘、选择与点击逻辑均由引擎执行"}</span>
+        <button onClick={() => setQuickFallbackKey(previewKey)}>快速预览</button>
       </footer>
     </section>
   );
 }
 
 export function PreviewStage(props: Props) {
-  return <PreviewStageSession key={`${props.sceneId}:${props.project.updatedAt}`} {...props} />;
+  return <WebGalPreviewStage {...props} />;
 }

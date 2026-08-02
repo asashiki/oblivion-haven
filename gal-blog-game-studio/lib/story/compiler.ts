@@ -3,12 +3,15 @@ import type {
   ChoiceOption,
   InputBlock,
   StageBlock,
+  StoryAsset,
   StoryBlock,
   StoryDiagnostic,
   StoryProject,
   StoryScene,
+  StageTransform,
   VariableOperation,
 } from "./types";
+import { figureTransformForAsset, normalizeFigureTransform } from "./figureFraming";
 import { escapeWebgal, sanitizeWebgalArg, slugify } from "./utils";
 import { validateProject } from "./schema";
 import {
@@ -42,25 +45,165 @@ function resolveExpressionAsset(project: StoryProject, characterId?: string, exp
   return resolveAsset(project, expression?.assetId);
 }
 
+function resolveExpressionAssetRecord(project: StoryProject, characterId?: string, expressionId?: string) {
+  const character = resolveCharacter(project, characterId);
+  if (!character) return undefined;
+  const expression = character.expressions.find((item) => item.id === (expressionId || character.defaultExpressionId));
+  return project.assets.find((asset) => asset.id === expression?.assetId);
+}
+
+function resolveExpressionRecord(project: StoryProject, characterId?: string, expressionId?: string) {
+  const character = resolveCharacter(project, characterId);
+  if (!character) return undefined;
+  return character.expressions.find((item) => item.id === (expressionId || character.defaultExpressionId));
+}
+
+function figureAnimationArgs(project: StoryProject, characterId?: string, expressionId?: string): string {
+  const expression = resolveExpressionRecord(project, characterId, expressionId);
+  const animation = expression?.webgalAnimation;
+  if (!expression || !animation) return "";
+  const path = (assetId?: string) => resolveAsset(project, assetId);
+  const parts: string[] = [];
+  if (animation.mouthSync) {
+    const open = path(animation.mouthOpenAssetId);
+    const half = path(animation.mouthHalfOpenAssetId);
+    const close = path(animation.mouthCloseAssetId) || resolveAsset(project, expression.assetId);
+    if (open) parts.push(arg(open, "mouthOpen"));
+    if (half) parts.push(arg(half, "mouthHalfOpen"));
+    if (close) parts.push(arg(close, "mouthClose"));
+  }
+  if (animation.blink === "dynamic") {
+    const open = path(animation.eyesOpenAssetId) || resolveAsset(project, expression.assetId);
+    const close = path(animation.eyesCloseAssetId);
+    if (open) parts.push(arg(open, "eyesOpen"));
+    if (close) parts.push(arg(close, "eyesClose"));
+  }
+  return parts.join("");
+}
+
 function positionArgs(position?: string): string {
   if (position === "left" || position === "far-left") return " -left";
   if (position === "right" || position === "far-right") return " -right";
   return "";
 }
 
-function transformArg(block: StageBlock): string {
-  const transform = block.transform;
-  if (!transform) return "";
+function transformPayload(transform: StageTransform | undefined, asset?: StoryAsset): Record<string, unknown> {
+  const resolved = figureTransformForAsset(asset, transform);
   const payload: Record<string, unknown> = {};
-  if (transform.x !== undefined || transform.y !== undefined) payload.position = { x: transform.x ?? 0, y: transform.y ?? 0 };
-  if (transform.scale !== undefined) payload.scale = { x: transform.scale, y: transform.scale };
-  if (transform.rotation !== undefined) payload.rotation = transform.rotation;
-  if (transform.alpha !== undefined) payload.alpha = transform.alpha;
+  if (resolved.x !== undefined || resolved.y !== undefined) payload.position = { x: resolved.x ?? 0, y: resolved.y ?? 0 };
+  if (resolved.scale !== undefined) payload.scale = { x: resolved.scale, y: resolved.scale };
+  if (resolved.rotation !== undefined) payload.rotation = resolved.rotation;
+  if (resolved.alpha !== undefined) payload.alpha = resolved.alpha;
+  return payload;
+}
+
+function transformArg(transform: StageTransform | undefined, asset?: StoryAsset): string {
+  const payload = transformPayload(transform, asset);
   return Object.keys(payload).length ? ` -transform=${JSON.stringify(payload)}` : "";
+}
+
+function compileFigureChange({
+  expressionPath,
+  figureId,
+  position,
+  transform,
+  asset,
+  transition,
+  duration,
+  easing,
+  animationArgs = "",
+  next = false,
+}: {
+  expressionPath: string;
+  figureId?: string;
+  position?: string;
+  transform?: StageTransform;
+  asset?: StoryAsset;
+  transition?: string;
+  duration?: number;
+  easing?: string;
+  animationArgs?: string;
+  next?: boolean;
+}): string[] {
+  const finalTransform = normalizeFigureTransform(figureTransformForAsset(asset, transform));
+  const finalPayload = transformPayload(finalTransform, asset);
+  const base = `changeFigure:${expressionPath}${arg(figureId, "id")}${positionArgs(position)}${animationArgs}`;
+  const supportedEntrance = transition === "enter"
+    || transition === "enter-from-left"
+    || transition === "enter-from-right"
+    || transition === "enter-from-bottom";
+
+  if (!transition || !figureId) {
+    return [
+      `${base}${arg(duration, "duration")}${arg(easing, "ease")}`
+      + `${transformArg(finalTransform, asset)}${next ? " -next" : ""};`,
+    ];
+  }
+  const entrance = supportedEntrance ? transition : "enter";
+
+  /*
+   * WebGAL ignores changeFigure -transform when -enter is present. Build the
+   * entrance as a temporary animation instead, so a visual editor's exact
+   * position and scale survive the transition.
+   */
+  const x = finalTransform.x ?? 0;
+  const y = finalTransform.y ?? 0;
+  const startTransform = {
+    ...finalPayload,
+    position: {
+      x: x + (entrance === "enter-from-left" ? -90 : entrance === "enter-from-right" ? 90 : 0),
+      y: y + (entrance === "enter-from-bottom" ? 90 : 0),
+    },
+    alpha: 0,
+    ...(entrance === "enter" ? {} : { blur: 5 }),
+  };
+  const endTransform = {
+    ...finalPayload,
+    position: { x, y },
+    alpha: finalTransform.alpha ?? 1,
+    blur: 0,
+    duration: duration ?? (entrance === "enter" ? 300 : 500),
+    ...(easing ? { ease: easing } : {}),
+  };
+  const initialPayload = { ...finalPayload, alpha: 0 };
+  return [
+    `${base} -transform=${JSON.stringify(initialPayload)} -duration=0 -next;`,
+    `setTempAnimation:${JSON.stringify([
+      { ...startTransform, duration: 0 },
+      endTransform,
+    ])}${arg(figureId, "target")}${next ? " -next" : ""};`,
+  ];
 }
 
 function variableName(project: StoryProject, variableId: string): string {
   return project.variables.find((variable) => variable.id === variableId)?.name || variableId;
+}
+
+function recordVariableName(project: StoryProject, recordId: string): string {
+  const record = (project.records || []).find((item) => item.id === recordId);
+  return `record_${slugify(record?.name || recordId)}`;
+}
+
+function choiceStateVariable(blockId: string): string {
+  return `__choice_${slugify(blockId)}`;
+}
+
+function sceneEndLabel(sceneId: string): string {
+  return `__scene_end_${slugify(sceneId)}`;
+}
+
+function recordConditionExpression(project: StoryProject, edge: StoryProject["routeMap"]["edges"][number]): string | undefined {
+  const condition = edge.recordCondition;
+  if (!condition?.recordIds.length) return edge.condition?.trim() || undefined;
+  const variables = condition.recordIds.map((id) => recordVariableName(project, id));
+  if (condition.mode === "all") return variables.join(" && ");
+  const minimum = Math.max(1, Math.min(condition.minimum || 1, variables.length));
+  const combinations = (items: string[], size: number): string[][] => {
+    if (size === 0) return [[]];
+    if (items.length < size) return [];
+    return items.flatMap((item, index) => combinations(items.slice(index + 1), size - 1).map((tail) => [item, ...tail]));
+  };
+  return combinations(variables, minimum).map((items) => `(${items.join(" && ")})`).join(" || ");
 }
 
 function variableValue(value: unknown): string {
@@ -79,7 +222,12 @@ function compileVariableOperation(project: StoryProject, operation: VariableOper
   return `setVar:${name}=${value};`;
 }
 
-function compileStage(project: StoryProject, block: StageBlock): string[] {
+function sceneFigureTransform(scene: StoryScene, characterId?: string): StageTransform | undefined {
+  if (!characterId) return undefined;
+  return scene.entryStage?.figures?.find((figure) => figure.characterId === characterId)?.transform;
+}
+
+function compileStage(project: StoryProject, scene: StoryScene, block: StageBlock): string[] {
   const assetPath = resolveAsset(project, block.assetId);
   const duration = block.transition?.durationMs ?? block.durationMs;
   const character = resolveCharacter(project, block.characterId);
@@ -99,12 +247,22 @@ function compileStage(project: StoryProject, block: StageBlock): string[] {
       return [`bgm:none${arg(block.durationMs, "enter")};`];
     case "play-sfx":
       return assetPath ? [`playEffect:${assetPath}${arg(volume, "volume")};`] : [];
+    case "play-video":
+      return assetPath ? [`video:${assetPath};`] : [];
     case "enter-character":
     case "set-expression":
       if (!expressionPath) return [];
-      return [
-        `changeFigure:${expressionPath}${arg(figureId, "id")}${positionArgs(block.position)}${enterTransition ? arg(enterTransition, "enter") : ""}${arg(duration, "duration")}${arg(block.transition?.easing, "ease")}${transformArg(block)};`,
-      ];
+      return compileFigureChange({
+        expressionPath,
+        figureId,
+        position: block.position,
+        transform: block.transform || sceneFigureTransform(scene, block.characterId),
+        asset: resolveExpressionAssetRecord(project, block.characterId, block.expressionId),
+        transition: enterTransition,
+        duration,
+        easing: block.transition?.easing,
+        animationArgs: figureAnimationArgs(project, block.characterId, block.expressionId),
+      });
     case "exit-character":
       return [`changeFigure:none${arg(figureId, "id")}${exitTransition ? arg(exitTransition, "exit") : ""}${arg(duration, "exitDuration")};`];
     case "move-character": {
@@ -138,11 +296,15 @@ function choiceLabel(blockId: string, optionId: string): string {
   return `__choice_${slugify(blockId)}_${slugify(optionId)}`;
 }
 
+function blockLabel(blockId: string): string {
+  return `__block_${slugify(blockId)}`;
+}
+
 function runtimeHookToken(kind: "action" | "input" | "ai", sceneId: string, blockId: string): string {
   return `${kind}_${slugify(sceneId)}_${slugify(blockId)}`;
 }
 
-function compileChoice(project: StoryProject, block: Extract<StoryBlock, { type: "choice" }>): string[] {
+function compileChoice(project: StoryProject, scene: StoryScene, block: Extract<StoryBlock, { type: "choice" }>): string[] {
   const usable = block.options.filter((option) => !option.hidden);
   if (!usable.length) return [`; [Story IR] 选择块 ${block.id} 没有可用选项`];
   const options = usable.map((option) => {
@@ -154,11 +316,27 @@ function compileChoice(project: StoryProject, block: Extract<StoryBlock, { type:
   let hasContinueOption = false;
   usable.forEach((option) => {
     lines.push(`label:${choiceLabel(block.id, option.id)};`);
+    lines.push(`setVar:${choiceStateVariable(block.id)}=${JSON.stringify(option.id)} -next;`);
+    if (option.recordId) lines.push(`setVar:${recordVariableName(project, option.recordId)}=true -global -next;`);
     (option.operations || []).forEach((operation) => lines.push(compileVariableOperation(project, operation)));
+    const choiceTarget = option.targetChoiceGroupId
+      ? project.scenes.flatMap((item) => item.blocks.map((candidate) => ({ scene: item, block: candidate })))
+        .find((item) => item.block.type === "choice" && item.block.id === option.targetChoiceGroupId)
+      : undefined;
+    const internalTarget = option.targetBlockId
+      ? scene.blocks.find((item) => item.id === option.targetBlockId)
+      : undefined;
     const target = option.targetSceneId
-      ? project.scenes.find((scene) => scene.id === option.targetSceneId)
-      : project.scenes.find((scene) => project.routeMap.nodes.find((node) => node.id === option.targetRouteNodeId)?.sceneId === scene.id);
-    if (target) lines.push(`changeScene:${sceneFileName(target)};`);
+      ? project.scenes.find((item) => item.id === option.targetSceneId)
+      : project.scenes.find((item) => project.routeMap.nodes.find((node) => node.id === option.targetRouteNodeId)?.sceneId === item.id);
+    if (choiceTarget?.scene.id === scene.id) lines.push(`jumpLabel:${blockLabel(choiceTarget.block.id)};`);
+    else if (choiceTarget) {
+      lines.push(`setVar:__story_choice_group=${JSON.stringify(choiceTarget.block.id)} -global -next;`);
+      lines.push(`changeScene:${sceneFileName(choiceTarget.scene)};`);
+    }
+    else if (option.endScene) lines.push(`jumpLabel:${sceneEndLabel(scene.id)};`);
+    else if (internalTarget) lines.push(`jumpLabel:${blockLabel(internalTarget.id)};`);
+    else if (target) lines.push(`changeScene:${sceneFileName(target)};`);
     else {
       hasContinueOption = true;
       lines.push(`jumpLabel:${continueLabel};`);
@@ -210,23 +388,82 @@ function compileBlock(project: StoryProject, scene: StoryScene, block: StoryBloc
   if (block.disabled) return [`; [disabled:${block.type}] ${block.id}`];
   switch (block.type) {
     case "dialogue": {
-      const character = resolveCharacter(project, block.characterId);
       const lines: string[] = [];
-      const expressionPath = resolveExpressionAsset(project, block.characterId, block.expressionId);
-      if (expressionPath && block.expressionId) {
-        lines.push(`changeFigure:${expressionPath}${arg(`char-${slugify(character?.name || block.characterId)}`, "id")}${positionArgs(block.position)} -next;`);
-      }
-      const voice = resolveAsset(project, block.voiceAssetId);
-      lines.push(`${escapeWebgal(character?.displayName || character?.name || "角色")}:${escapeWebgal(block.text)}${voice ? arg(voice, "vocal") : ""};`);
+      const reactions = block.choiceReactions || [];
+      const addVariant = ({
+        characterId,
+        expressionId,
+        position,
+        transform,
+        text,
+        when,
+        voiceAssetId,
+      }: {
+        characterId: string;
+        expressionId?: string;
+        position?: string;
+        transform?: StageTransform;
+        text: string;
+        when?: string;
+        voiceAssetId?: string;
+      }) => {
+        const character = resolveCharacter(project, characterId);
+        const effectiveExpressionId = expressionId || ((position || transform) ? character?.defaultExpressionId : undefined);
+        const expressionPath = resolveExpressionAsset(project, characterId, effectiveExpressionId);
+        const expressionAsset = resolveExpressionAssetRecord(project, characterId, effectiveExpressionId);
+        const condition = when ? ` -when=${when}` : "";
+        if (expressionPath && effectiveExpressionId) {
+          const dialogueEnter = normalizeTransitionName(block.enter?.name, "enter");
+          lines.push(...compileFigureChange({
+            expressionPath,
+            figureId: `char-${slugify(character?.name || characterId)}`,
+            position,
+            transform: transform || sceneFigureTransform(scene, characterId),
+            asset: expressionAsset,
+            transition: dialogueEnter,
+            duration: block.enter?.durationMs,
+            easing: block.enter?.easing,
+            animationArgs: figureAnimationArgs(project, characterId, effectiveExpressionId),
+            next: true,
+          }).map((line) => condition ? line.replace(/;$/, `${condition};`) : line));
+        }
+        const voice = resolveAsset(project, voiceAssetId);
+        const figureId = `char-${slugify(character?.name || characterId)}`;
+        lines.push(`${escapeWebgal(character?.displayName || character?.name || "角色")}:${escapeWebgal(text)}${arg(figureId, "figureId")}${voice ? arg(voice, "vocal") : ""}${condition};`);
+      };
+
+      const grouped = new Map<string, typeof reactions>();
+      reactions.forEach((reaction) => grouped.set(reaction.choiceBlockId, [...(grouped.get(reaction.choiceBlockId) || []), reaction]));
+      const baseWhen = [...grouped.entries()].map(([choiceBlockId, items]) => (
+        items.map((item) => `${choiceStateVariable(choiceBlockId)}!=${JSON.stringify(item.optionId)}`).join(" && ")
+      )).filter(Boolean).join(" && ") || undefined;
+      addVariant({
+        characterId: block.characterId,
+        expressionId: block.expressionId,
+        position: block.position,
+        transform: block.transform,
+        text: block.text,
+        when: baseWhen,
+        voiceAssetId: block.voiceAssetId,
+      });
+      reactions.forEach((reaction) => addVariant({
+        characterId: reaction.characterId || block.characterId,
+        expressionId: reaction.expressionId || block.expressionId,
+        position: reaction.position || block.position,
+        transform: reaction.transform || block.transform,
+        text: reaction.text,
+        when: `${choiceStateVariable(reaction.choiceBlockId)}==${JSON.stringify(reaction.optionId)}`,
+      }));
+      grouped.forEach((_, choiceBlockId) => lines.push(`setVar:${choiceStateVariable(choiceBlockId)}="" -next;`));
       return lines;
     }
     case "narration":
       if ((block.mode || scene.mode) === "nvl") return [`intro:${escapeWebgal(block.text)}${block.hold ? " -hold" : ""};`];
       return [`${escapeWebgal(block.text)};`];
     case "stage":
-      return compileStage(project, block);
+      return compileStage(project, scene, block);
     case "choice":
-      return compileChoice(project, block);
+      return compileChoice(project, scene, block);
     case "input":
       return compileInput(project, scene, block);
     case "condition":
@@ -237,6 +474,12 @@ function compileBlock(project: StoryProject, scene: StoryScene, block: StoryBloc
     case "variable":
       return block.operations.map((operation) => compileVariableOperation(project, operation));
     case "jump": {
+      if (block.targetBlockId) {
+        const targetBlock = scene.blocks.find((item) => item.id === block.targetBlockId);
+        return targetBlock
+          ? [`jumpLabel:${blockLabel(targetBlock.id)}${block.condition ? arg(block.condition, "when") : ""};`]
+          : [`; missing internal jump target ${block.targetBlockId}`];
+      }
       const routeSceneId = project.routeMap.nodes.find((node) => node.id === block.targetRouteNodeId)?.sceneId;
       const target = project.scenes.find((item) => item.id === (block.targetSceneId || routeSceneId));
       return target ? [`changeScene:${sceneFileName(target)}${block.condition ? arg(block.condition, "when") : ""};`] : [`; missing jump target ${block.targetSceneId || block.targetRouteNodeId}`];
@@ -285,7 +528,79 @@ export function compileScene(project: StoryProject, scene: StoryScene): { script
     `; Scene: ${scene.name} (${scene.id})`,
     `; Mode: ${scene.mode}`,
   ];
-  scene.blocks.forEach((block) => lines.push(...compileBlock(project, scene, block)));
+  const choiceGroups = scene.blocks.filter((block) => block.type === "choice");
+  choiceGroups.forEach((block) => {
+    lines.push(`jumpLabel:${blockLabel(block.id)} -when=__story_choice_group==${JSON.stringify(block.id)} -next;`);
+  });
+  const internalTargets = new Set(
+    scene.blocks.flatMap((block) => {
+      if (block.type === "choice") return block.options.map((option) => option.targetBlockId).filter((id): id is string => Boolean(id));
+      if (block.type === "jump" && block.targetBlockId) return [block.targetBlockId];
+      return [];
+    }),
+  );
+  const figureState = new Map<string, { expressionId?: string; position?: string; transformKey?: string }>();
+  scene.blocks.forEach((block) => {
+    if (block.id.startsWith("route_jump_") && block.source === "system") return;
+    if (internalTargets.has(block.id) || block.type === "choice") lines.push(`label:${blockLabel(block.id)};`);
+    if (block.type === "choice") lines.push("setVar:__story_choice_group=\"\" -global -next;");
+    let blockToCompile = block;
+    if (block.type === "stage" && block.characterId) {
+      if (block.action === "exit-character") {
+        figureState.delete(block.characterId);
+      } else if (block.action === "enter-character" || block.action === "set-expression") {
+        const current = figureState.get(block.characterId);
+        figureState.set(block.characterId, {
+          expressionId: block.expressionId || current?.expressionId,
+          position: block.position || current?.position,
+          transformKey: JSON.stringify(block.transform || sceneFigureTransform(scene, block.characterId) || {}),
+        });
+      }
+    }
+    if (block.type === "dialogue" && block.expressionId) {
+      const current = figureState.get(block.characterId);
+      const nextPosition = block.position || current?.position;
+      const nextTransformKey = JSON.stringify(block.transform || sceneFigureTransform(scene, block.characterId) || {});
+      if (current?.expressionId === block.expressionId && current.position === nextPosition && current.transformKey === nextTransformKey && !block.choiceReactions?.length) {
+        blockToCompile = { ...block, expressionId: undefined, position: undefined, transform: undefined, enter: undefined };
+      } else {
+        figureState.set(block.characterId, {
+          expressionId: block.expressionId,
+          position: nextPosition,
+          transformKey: nextTransformKey,
+        });
+      }
+    }
+
+    lines.push(...compileBlock(project, scene, blockToCompile));
+
+    if (block.type === "stage") {
+      if (block.action === "clear-stage") figureState.clear();
+      if (block.action === "exit-character" && block.characterId) figureState.delete(block.characterId);
+      if (
+        (block.action === "enter-character" || block.action === "set-expression")
+        && block.characterId
+      ) {
+        const current = figureState.get(block.characterId);
+        figureState.set(block.characterId, {
+          expressionId: block.expressionId || current?.expressionId,
+          position: block.position || current?.position,
+          transformKey: JSON.stringify(block.transform || sceneFigureTransform(scene, block.characterId) || {}),
+        });
+      }
+    }
+  });
+  lines.push(`label:${sceneEndLabel(scene.id)};`);
+  const sourceNodeIds = new Set(project.routeMap.nodes.filter((node) => node.sceneId === scene.id).map((node) => node.id));
+  const outgoing = project.routeMap.edges
+    .filter((edge) => sourceNodeIds.has(edge.source))
+    .sort((a, b) => Number(Boolean(recordConditionExpression(project, b))) - Number(Boolean(recordConditionExpression(project, a))) || (b.priority || 0) - (a.priority || 0));
+  outgoing.forEach((edge) => {
+    const targetSceneId = project.routeMap.nodes.find((node) => node.id === edge.target)?.sceneId;
+    const target = project.scenes.find((item) => item.id === targetSceneId);
+    if (!target) return;
+    lines.push(`changeScene:${sceneFileName(target)}${arg(recordConditionExpression(project, edge), "when")};`);
+  });
   return { script: `${lines.join("\n")}\n`, diagnostics };
 }
 
@@ -309,6 +624,7 @@ function compileStart(project: StoryProject): string {
     ...project.variables
       .filter((variable) => variable.scope !== "scene")
       .map((variable) => `setVar:${variable.name}=${variableValue(variable.defaultValue)} -global -next;`),
+    ...(project.records || []).map((record) => `setVar:${recordVariableName(project, record.id)}=false -global -next;`),
     startScene ? `changeScene:${sceneFileName(startScene)};` : "; ERROR: start scene missing",
   ];
   return `${lines.join("\n")}\n`;
@@ -524,9 +840,67 @@ function compileBridgeRuntime(project: StoryProject): string {
 })();`;
 }
 
-function compileIndex(project: StoryProject): string {
+type CompileProjectOptions = {
+  previewMode?: boolean;
+};
+
+function compileIndex(project: StoryProject, options: CompileProjectOptions = {}): string {
   const engineUrl = project.settings.sharedEngineUrl || "";
   const engineCssUrl = project.settings.sharedEngineCssUrl || "";
+  const previewMode = Boolean(options.previewMode);
+  const landingMarkup = previewMode
+    ? `<div class="html-body__title-enter" aria-hidden="true"></div>`
+    : `<div class="html-body__title-enter">
+    <button id="galblog-enter" type="button">PRESS SCREEN TO START</button>
+  </div>`;
+  const entryScript = previewMode
+    ? `
+      const click = (target) => target?.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
+      const waitFor = (resolveTarget, timeoutMs = 8000) => new Promise((resolve, reject) => {
+        const startedAt = Date.now();
+        const check = () => {
+          const target = resolveTarget();
+          if (target) return resolve(target);
+          if (Date.now() - startedAt >= timeoutMs) return reject(new Error("WebGAL preview start control was not found"));
+          setTimeout(check, 40);
+        };
+        check();
+      });
+      window.__GAL_BLOG_ENGINE_RENDERED__
+        .then(async () => {
+          const enterTarget = await waitFor(() => document.querySelector(".title__enter-game-target"));
+          click(enterTarget);
+          const startButton = await waitFor(() => Array.from(document.querySelectorAll("div")).find((element) => {
+            const className = typeof element.className === "string" ? element.className : "";
+            const parentClass = typeof element.parentElement?.className === "string" ? element.parentElement.className : "";
+            return className.includes("_Title_button_") && parentClass.includes("_Title_buttonList_");
+          }));
+          click(startButton);
+          landing?.remove();
+          window.parent?.postMessage({
+            channel: ${JSON.stringify(project.settings.blogBridge.channel)},
+            type: "webgal-preview-started",
+            sceneId: ${JSON.stringify(project.settings.startSceneId)}
+          }, "*");
+        })
+        .catch((error) => {
+          if (status) status.textContent = "WEBGAL PREVIEW START ERROR · " + (error instanceof Error ? error.message : String(error));
+        });`
+    : `
+      let entered = false;
+      const enteredPromise = new Promise((resolve) => {
+        enter?.addEventListener("click", () => {
+          if (entered) return;
+          entered = true;
+          landing?.classList.add("is-leaving");
+          setTimeout(() => landing?.remove(), 700);
+          resolve();
+        });
+      });
+      Promise.all([window.__GAL_BLOG_ENGINE_RENDERED__, enteredPromise]).then(() => {
+        const target = document.querySelector(".title__enter-game-target");
+        target?.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
+      });`;
   return `<!doctype html>
 <html lang="${project.locale}">
 <head>
@@ -543,6 +917,7 @@ function compileIndex(project: StoryProject): string {
     #galblog-enter{border:1px solid #ffffff42;border-radius:999px;padding:18px 34px;background:#ffffff0c;color:#f5f7ff;font:500 20px/1.2 ui-serif,Georgia,serif;letter-spacing:.28em;cursor:pointer;box-shadow:0 16px 70px #0008;transition:background .2s,border-color .2s}
     #galblog-enter:hover{background:#ffffff16;border-color:#ffffff70}
     #galblog-engine-status{position:absolute;left:50%;bottom:84px;z-index:101;transform:translateX(-50%);font:500 13px system-ui;letter-spacing:.18em;color:#a9b5d5}
+    ${previewMode ? `.html-body__title-enter,[class*="_Title_main_"]{opacity:0!important;pointer-events:none!important}` : ""}
   </style>
   ${engineCssUrl ? `<link rel="stylesheet" crossorigin href="${engineCssUrl.replace(/["<>&]/g, "")}" />` : ""}
   <script>
@@ -560,9 +935,7 @@ function compileIndex(project: StoryProject): string {
 </head>
 <body>
   <div id="ebg" aria-hidden="true"><div id="ebgOverlay"></div></div>
-  <div class="html-body__title-enter">
-    <button id="galblog-enter" type="button">PRESS SCREEN TO START</button>
-  </div>
+  ${landingMarkup}
   <div id="html-body__panic-overlay"></div>
   <div id="root"></div>
   <div id="galblog-engine-status">WEBGAL ${project.settings.webgalVersion} · LOADING</div>
@@ -571,6 +944,7 @@ function compileIndex(project: StoryProject): string {
       const root = document.getElementById("root");
       const landing = document.querySelector(".html-body__title-enter");
       const enter = document.getElementById("galblog-enter");
+      const status = document.getElementById("galblog-engine-status");
       const resize = () => {
         const scale = Math.min(window.innerWidth / 2560, window.innerHeight / 1440);
         const left = (window.innerWidth - 2560 * scale) / 2;
@@ -579,20 +953,7 @@ function compileIndex(project: StoryProject): string {
         if (root) root.style.transform = transform;
         if (landing) landing.style.transform = transform;
       };
-      let entered = false;
-      const enteredPromise = new Promise((resolve) => {
-        enter?.addEventListener("click", () => {
-          if (entered) return;
-          entered = true;
-          landing?.classList.add("is-leaving");
-          setTimeout(() => landing?.remove(), 700);
-          resolve();
-        });
-      });
-      Promise.all([window.__GAL_BLOG_ENGINE_RENDERED__, enteredPromise]).then(() => {
-        const target = document.querySelector(".title__enter-game-target");
-        target?.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
-      });
+      ${entryScript}
       resize();
       window.addEventListener("resize", resize);
     })();
@@ -615,14 +976,17 @@ function compileIndex(project: StoryProject): string {
 </html>`;
 }
 
-export function compileProject(project: StoryProject): CompileResult {
+export function compileProject(
+  project: StoryProject,
+  options: CompileProjectOptions = {},
+): CompileResult {
   const diagnostics = validateProject(project);
   const sceneScripts: Record<string, string> = {};
   project.scenes.forEach((scene) => {
     sceneScripts[scene.id] = compileScene(project, scene).script;
   });
   const files = [
-    { path: "index.html", content: compileIndex(project), contentType: "text/html; charset=utf-8" },
+    { path: "index.html", content: compileIndex(project, options), contentType: "text/html; charset=utf-8" },
     { path: "gal-blog-bridge.js", content: compileBridgeRuntime(project), contentType: "text/javascript; charset=utf-8" },
     { path: "gal-blog.embed.json", content: `${JSON.stringify({
       schemaVersion: 1,

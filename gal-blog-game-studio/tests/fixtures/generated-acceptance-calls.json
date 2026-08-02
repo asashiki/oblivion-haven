@@ -1,0 +1,579 @@
+[
+  {
+    "call": {
+      "name": "create_scene",
+      "arguments": {
+        "chapterId": "chapter_one",
+        "name": "01 · 门铃之后",
+        "mode": "adv"
+      }
+    },
+    "operationCount": 4
+  },
+  {
+    "call": {
+      "name": "create_scene",
+      "arguments": {
+        "chapterId": "chapter_one",
+        "name": "02A · 先说今天",
+        "mode": "adv",
+        "afterSceneId": "scene_3d3909b5"
+      }
+    },
+    "operationCount": 3
+  },
+  {
+    "call": {
+      "name": "create_scene",
+      "arguments": {
+        "chapterId": "chapter_one",
+        "name": "02B · 先让茶醒",
+        "mode": "adv",
+        "afterSceneId": "scene_7f6b7a36"
+      }
+    },
+    "operationCount": 3
+  },
+  {
+    "call": {
+      "name": "create_scene",
+      "arguments": {
+        "chapterId": "chapter_one",
+        "name": "03 · 留给明天的问题",
+        "mode": "adv",
+        "afterSceneId": "scene_9c044876"
+      }
+    },
+    "operationCount": 3
+  },
+  {
+    "call": {
+      "name": "modify_scene",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "patch": {
+          "summary": "主人比约定更早来到茶室，爱丽丝察觉他有话没有说出口",
+          "aiContext": "主人比约定更早来到茶室，爱丽丝察觉他有话没有说出口。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+          "tags": [
+            "ai-generated-acceptance",
+            "three-real-assets"
+          ],
+          "entryStage": {
+            "backgroundAssetId": "bg_alice_tea_room_day",
+            "figures": [
+              {
+                "characterId": "char_alice",
+                "expressionId": "expr_alice_standard_normal",
+                "position": "right",
+                "transform": {
+                  "x": 0,
+                  "y": 570,
+                  "scale": 1.82
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "operationCount": 4
+  },
+  {
+    "call": {
+      "name": "set_background",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "assetId": "bg_alice_tea_room_day",
+        "index": 0
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "characterId": "char_alice",
+        "text": "你比约定早了十一分钟，主人。",
+        "expressionId": "expr_alice_standard_normal",
+        "position": "right",
+        "enter": {
+          "name": "enter-from-right",
+          "durationMs": 520,
+          "easing": "easeOut"
+        }
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "characterId": "char_alice",
+        "text": "不是坏事。只是门铃响起的时候，我还在想——今天要先问候你，还是先把茶端上来。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "characterId": "char_alice",
+        "text": "现在看来，茶可以等一等。你握着门把的样子，比平时用力。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "characterId": "char_alice",
+        "text": "如果还没想好从哪里说起，就由你选一个比较容易的开头吧。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_choice",
+      "arguments": {
+        "sceneId": "scene_3d3909b5",
+        "prompt": "先从哪里开始？",
+        "options": [
+          {
+            "id": "arrival_talk",
+            "label": "先说今天发生的事",
+            "targetSceneId": "scene_7f6b7a36"
+          },
+          {
+            "id": "arrival_tea",
+            "label": "先让红茶醒一会儿",
+            "targetSceneId": "scene_9c044876"
+          }
+        ]
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "modify_scene",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "patch": {
+          "summary": "主人试着说明今天的迟疑，爱丽丝没有催促，只把问题缩小到可以回答的程度",
+          "aiContext": "主人试着说明今天的迟疑，爱丽丝没有催促，只把问题缩小到可以回答的程度。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+          "tags": [
+            "ai-generated-acceptance",
+            "three-real-assets"
+          ],
+          "entryStage": {
+            "backgroundAssetId": "bg_alice_tea_room_day",
+            "figures": [
+              {
+                "characterId": "char_alice",
+                "expressionId": "expr_alice_standard_normal",
+                "position": "left",
+                "transform": {
+                  "x": 0,
+                  "y": 570,
+                  "scale": 1.82
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "operationCount": 4
+  },
+  {
+    "call": {
+      "name": "set_background",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "assetId": "bg_alice_tea_room_day",
+        "index": 0
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "characterId": "char_alice",
+        "text": "那就从今天开始。不用从最正确的地方开始。",
+        "expressionId": "expr_alice_standard_normal",
+        "position": "left",
+        "enter": {
+          "name": "enter-from-left",
+          "durationMs": 520,
+          "easing": "easeOut"
+        }
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "characterId": "char_alice",
+        "text": "你可以只告诉我，哪一个瞬间最想立刻离开。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "characterId": "char_alice",
+        "text": "……原来如此。你不是不知道该怎么做，只是不想让任何人失望。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "characterId": "char_alice",
+        "text": "可如果连你自己也被排在最后，这份体贴迟早会变成一张没人敢拆的欠条。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "characterId": "char_alice",
+        "text": "要继续说下去，还是先回到茶桌旁？两种都不算逃避。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_choice",
+      "arguments": {
+        "sceneId": "scene_7f6b7a36",
+        "prompt": "把话说到哪一步？",
+        "options": [
+          {
+            "id": "confession_promise",
+            "label": "把真正担心的事说完",
+            "targetSceneId": "scene_d43796bc"
+          },
+          {
+            "id": "confession_tea",
+            "label": "先去看看红茶",
+            "targetSceneId": "scene_9c044876"
+          }
+        ]
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "modify_scene",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "patch": {
+          "summary": "短暂的 Q 版演出缓和气氛，玩家可以返回谈话或继续作出约定",
+          "aiContext": "短暂的 Q 版演出缓和气氛，玩家可以返回谈话或继续作出约定。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+          "tags": [
+            "ai-generated-acceptance",
+            "three-real-assets"
+          ],
+          "entryStage": {
+            "backgroundAssetId": "bg_alice_tea_room_day",
+            "figures": [
+              {
+                "characterId": "char_alice",
+                "expressionId": "expr_alice_chibi_normal",
+                "position": "center",
+                "transform": {
+                  "x": 0,
+                  "y": 34,
+                  "scale": 0.94
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "operationCount": 4
+  },
+  {
+    "call": {
+      "name": "set_background",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "assetId": "bg_alice_tea_room_day",
+        "index": 0
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "characterId": "char_alice",
+        "text": "报告主人：红茶没有生气，只是已经等得开始怀疑自己的冲泡时间。",
+        "expressionId": "expr_alice_chibi_normal",
+        "position": "center",
+        "enter": {
+          "name": "enter-from-bottom",
+          "durationMs": 420,
+          "easing": "backOut"
+        }
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "characterId": "char_alice",
+        "text": "这是我替它说的。它本人暂时保持沉默。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "characterId": "char_alice",
+        "text": "不过，停下来喝一口以后，刚才那句话也许会变得没那么锋利。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "characterId": "char_alice",
+        "text": "你想回去把它说完，还是把答案留在今天的最后？"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_choice",
+      "arguments": {
+        "sceneId": "scene_9c044876",
+        "prompt": "接下来怎么做？",
+        "options": [
+          {
+            "id": "tea_return",
+            "label": "回到刚才的话题",
+            "targetSceneId": "scene_7f6b7a36"
+          },
+          {
+            "id": "tea_promise",
+            "label": "把约定写进书签",
+            "targetSceneId": "scene_d43796bc"
+          }
+        ]
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "modify_scene",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "patch": {
+          "summary": "爱丽丝恢复标准构图，与主人约定明天只处理一件真正重要的事",
+          "aiContext": "爱丽丝恢复标准构图，与主人约定明天只处理一件真正重要的事。只使用已登记的三份真实素材；没有 BGM，因此保持静音。",
+          "tags": [
+            "ai-generated-acceptance",
+            "three-real-assets"
+          ],
+          "entryStage": {
+            "backgroundAssetId": "bg_alice_tea_room_day",
+            "figures": [
+              {
+                "characterId": "char_alice",
+                "expressionId": "expr_alice_standard_normal",
+                "position": "right",
+                "transform": {
+                  "x": 0,
+                  "y": 570,
+                  "scale": 1.82
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "operationCount": 4
+  },
+  {
+    "call": {
+      "name": "set_background",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "assetId": "bg_alice_tea_room_day",
+        "index": 0
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "characterId": "char_alice",
+        "text": "谢谢你愿意说到这里。剩下的部分，不必为了让今天完整而勉强补上。",
+        "expressionId": "expr_alice_standard_normal",
+        "position": "right",
+        "enter": {
+          "name": "enter",
+          "durationMs": 360,
+          "easing": "easeOut"
+        }
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "characterId": "char_alice",
+        "text": "我们只约定一件事：明天醒来以后，先替自己决定一件真正重要的事。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "characterId": "char_alice",
+        "text": "不是最紧急的，也不是别人最期待的。只是一件你愿意承认重要的事。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "characterId": "char_alice",
+        "text": "我会把空白留在这张书签上。等你想写的时候，再交给我。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "add_dialogue",
+      "arguments": {
+        "sceneId": "scene_d43796bc",
+        "characterId": "char_alice",
+        "text": "现在，红茶的温度刚好。欢迎回来，主人。"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "connect_branch",
+      "arguments": {
+        "sourceNodeId": "route_a8be5ca9",
+        "targetNodeId": "route_0b0b7181",
+        "label": "先说今天"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "connect_branch",
+      "arguments": {
+        "sourceNodeId": "route_a8be5ca9",
+        "targetNodeId": "route_ad925a45",
+        "label": "先让茶醒"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "connect_branch",
+      "arguments": {
+        "sourceNodeId": "route_0b0b7181",
+        "targetNodeId": "route_bde3546e",
+        "label": "把担心说完"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "connect_branch",
+      "arguments": {
+        "sourceNodeId": "route_0b0b7181",
+        "targetNodeId": "route_ad925a45",
+        "label": "回到茶桌"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "connect_branch",
+      "arguments": {
+        "sourceNodeId": "route_ad925a45",
+        "targetNodeId": "route_0b0b7181",
+        "label": "回到话题"
+      }
+    },
+    "operationCount": 1
+  },
+  {
+    "call": {
+      "name": "connect_branch",
+      "arguments": {
+        "sourceNodeId": "route_ad925a45",
+        "targetNodeId": "route_bde3546e",
+        "label": "写下约定"
+      }
+    },
+    "operationCount": 1
+  }
+]

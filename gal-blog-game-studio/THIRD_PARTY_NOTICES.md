@@ -15,3 +15,4 @@ The preset animation frame data is kept in
 `lib/story/performancePresets.ts`. Local changes are limited to representing
 the JSON data as TypeScript constants so the compiler can emit a complete
 WebGAL game package.
+

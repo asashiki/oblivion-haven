@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { exampleProject } from "@/lib/story/example";
+import { generatedAcceptanceProject } from "@/lib/story/generatedAcceptance";
 
 export const runtime = "edge";
 
 export async function GET() {
-  return NextResponse.json(exampleProject);
+  return NextResponse.json(generatedAcceptanceProject);
 }

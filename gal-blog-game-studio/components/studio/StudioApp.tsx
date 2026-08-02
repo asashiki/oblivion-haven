@@ -47,11 +47,13 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { BlockEditor } from "./BlockEditor";
 import { NarrativeMap } from "./NarrativeMap";
 import { PreviewStage } from "./PreviewStage";
+import { SimpleStudio } from "./SimpleStudio";
 import { compileProject } from "@/lib/story/compiler";
-import { exampleProject } from "@/lib/story/example";
-import { createProjectZip, createStoryJson } from "@/lib/story/exporter";
+import { createProjectZipWithAssets, createStoryJson } from "@/lib/story/exporter";
+import { generatedAcceptanceProject } from "@/lib/story/generatedAcceptance";
 import { importStoryText } from "@/lib/story/importers";
 import { AI_TOOL_CATALOG, applyPatches } from "@/lib/story/patch";
+import { WEBGAL_CAPABILITIES } from "@/lib/story/webgalCapabilities";
 import { parseStoryProject, validateProject } from "@/lib/story/schema";
 import type {
   ImportFormat,
@@ -66,12 +68,14 @@ import type {
 } from "@/lib/story/types";
 import { createId, deepClone, downloadBlob, nowIso } from "@/lib/story/utils";
 import { routeDisplayPosition, routeStoredPosition } from "@/lib/story/routeLayout";
+import { migrateWebGalFigureFraming } from "@/lib/story/migrations";
 import { TerreClient } from "@/lib/integrations/terre";
 
 type View = "story" | "map" | "assets" | "ai" | "preview" | "diagnostics" | "export" | "settings";
 type Snapshot = { project: StoryProject; label: string; actor: "human" | "ai" | "import" | "system"; timestamp: string };
 
-const STORAGE_KEY = "gal-blog-game-studio.project.v1";
+const STORAGE_KEY = "gal-blog-game-studio.project.v6";
+const LEGACY_STORAGE_KEY = "gal-blog-game-studio.project.v5";
 
 const navItems: Array<{ id: View; label: string; icon: typeof Layers3 }> = [
   { id: "story", label: "剧本", icon: Layers3 },
@@ -84,12 +88,12 @@ const navItems: Array<{ id: View; label: string; icon: typeof Layers3 }> = [
 ];
 
 function loadInitialProject(): StoryProject {
-  if (typeof window === "undefined") return deepClone(exampleProject);
+  if (typeof window === "undefined") return deepClone(generatedAcceptanceProject);
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved ? parseStoryProject(JSON.parse(saved)) : deepClone(exampleProject);
+    return migrateWebGalFigureFraming(saved ? parseStoryProject(JSON.parse(saved)) : deepClone(generatedAcceptanceProject));
   } catch {
-    return deepClone(exampleProject);
+    return migrateWebGalFigureFraming(deepClone(generatedAcceptanceProject));
   }
 }
 
@@ -195,17 +199,15 @@ function AiWorkspace({
 }) {
   const [tab, setTab] = useState<"import" | "patch" | "tools">("import");
   const [format, setFormat] = useState<"auto" | ImportFormat>("auto");
-  const [input, setInput] = useState(`[角色=爱丽丝][表情=有些犹豫][背景=茶室夜晚][BGM=quiet][入场=淡入][位置=右侧]
-爱丽丝：欢迎回来，主人。
-
-让爱丽丝从右侧缓慢淡入，表情有些犹豫，然后说“主人今天回来得有些晚呢”。`);
+  const [input, setInput] = useState(`[角色=爱丽丝][表情=标准立绘][背景=白昼茶室][入场=从右侧][位置=右侧]
+爱丽丝：欢迎回来，主人。今天的茶会已经准备好了。`);
   const [result, setResult] = useState<ImportResult>();
   const [importApplyError, setImportApplyError] = useState("");
   const [patchText, setPatchText] = useState(`[
   {
     "op": "set",
-    "path": "/scenes/0/blocks/3/text",
-    "value": "欢迎回来，主人。茶已经泡好了。"
+    "path": "/scenes/0/blocks/2/text",
+    "value": "欢迎回来，主人。今天的茶已经准备好了。"
   }
 ]`);
   const [patchError, setPatchError] = useState("");
@@ -317,15 +319,26 @@ function AiWorkspace({
       )}
 
       {tab === "tools" && (
-        <div className="tool-catalog">
-          {AI_TOOL_CATALOG.map((tool) => (
-            <article key={tool.name}>
-              <div><TerminalSquare size={16} /><code>{tool.name}</code></div>
-              <p>{tool.description}</p>
-              <span>{tool.args.join(" · ") || "无参数"}</span>
-            </article>
-          ))}
-        </div>
+        <>
+          <div className="webgal-capability-matrix">
+            {WEBGAL_CAPABILITIES.map((capability) => (
+              <article key={capability.id} className={`status-${capability.status}`}>
+                <header><strong>{capability.label}</strong><span>{capability.status === "ready" ? "可由 AI 安全调用" : capability.status === "provider" ? "配置 Provider 后可用" : "仅原生块 / 尚无语义工具"}</span></header>
+                <code>{capability.command}</code>
+                <p>{capability.tools.join(" · ") || "不会让 AI 默认调用"}</p>
+              </article>
+            ))}
+          </div>
+          <div className="tool-catalog">
+            {AI_TOOL_CATALOG.map((tool) => (
+              <article key={tool.name}>
+                <div><TerminalSquare size={16} /><code>{tool.name}</code></div>
+                <p>{tool.description}</p>
+                <span>{tool.args.join(" · ") || "无参数"}</span>
+              </article>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -674,7 +687,7 @@ const implementedFeatures = [
   ["Terre 工程同步与 iframe 真实预览适配器", "完成（需本地 Terre）"],
   ["WebGAL 项目 ZIP、Story JSON、Blog Embed 清单", "完成"],
   ["实时 AI Provider 调用", "接口完成，Provider 未绑定"],
-  ["资源二进制持久化与离线引擎内嵌", "待接入本地/云存储"],
+  ["上传资源二进制持久化与完整 ZIP 导出", "完成（引擎仍使用共享版本）"],
 ] as const;
 
 function ExportWorkspace({ project, diagnostics }: { project: StoryProject; diagnostics: StoryDiagnostic[] }) {
@@ -682,11 +695,23 @@ function ExportWorkspace({ project, diagnostics }: { project: StoryProject; diag
   const [selectedFile, setSelectedFile] = useState(compiled.files.find((file) => file.path.includes("/scene/scene_"))?.path || compiled.files[0]?.path);
   const file = compiled.files.find((item) => item.path === selectedFile);
   const errors = diagnostics.filter((item) => item.severity === "error");
-  const exportZip = () => downloadBlob(createProjectZip(project), `${project.slug}-${project.version}.zip`);
+  const [exportState, setExportState] = useState<"idle" | "working" | "error">("idle");
+  const [exportError, setExportError] = useState("");
+  const exportZip = async () => {
+    setExportState("working");
+    setExportError("");
+    try {
+      downloadBlob(await createProjectZipWithAssets(project), `${project.slug}-${project.version}.zip`);
+      setExportState("idle");
+    } catch (error) {
+      setExportState("error");
+      setExportError(error instanceof Error ? error.message : "导出失败");
+    }
+  };
   const exportJson = () => downloadBlob(createStoryJson(project), `${project.slug}.story.json`);
   return (
     <div className="export-workspace">
-      <header className="workspace-title"><div><span className="eyebrow">BUILD & PUBLISH</span><h2>WebGAL 编译与导出</h2><p>Story IR 保留为源数据；脚本、Web 包和博客嵌入配置都是可重复生成的产物。</p></div><div className="export-actions"><button onClick={exportJson}><FileJson size={14} /> Story JSON</button><button className="primary-button" disabled={errors.length > 0} onClick={exportZip}><Download size={14} /> 导出 Web 游戏 ZIP</button></div></header>
+      <header className="workspace-title"><div><span className="eyebrow">BUILD & PUBLISH</span><h2>WebGAL 编译与导出</h2><p>Story IR 保留为源数据；脚本、Web 包和博客嵌入配置都是可重复生成的产物。</p>{exportError && <small className="export-error">{exportError}</small>}</div><div className="export-actions"><button onClick={exportJson}><FileJson size={14} /> Story JSON</button><button className="primary-button" disabled={errors.length > 0 || exportState === "working"} onClick={() => void exportZip()}><Download size={14} /> {exportState === "working" ? "正在打包素材…" : "导出 Web 游戏 ZIP"}</button></div></header>
       <div className="build-summary">
         <article><span>BUILD TARGET</span><strong>WebGAL {project.settings.webgalVersion}</strong><small>Static Web + Terre compatible</small></article>
         <article><span>COMPILED FILES</span><strong>{compiled.files.length}</strong><small>{project.scenes.length} scenes · {project.assets.length} assets registered</small></article>
@@ -714,6 +739,7 @@ function ExportWorkspace({ project, diagnostics }: { project: StoryProject; diag
 
 function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
   const [project, setProject] = useState<StoryProject>(() => deepClone(initialProject));
+  const [experienceMode, setExperienceMode] = useState<"simple" | "advanced">("simple");
   const [view, setView] = useState<View>("story");
   const [selectedSceneId, setSelectedSceneId] = useState(project.settings.startSceneId);
   const [past, setPast] = useState<Snapshot[]>([]);
@@ -801,8 +827,29 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
     event.target.value = "";
   };
 
+  if (experienceMode === "simple") {
+    return (
+      <SimpleStudio
+        project={project}
+        selectedSceneId={selectedSceneId}
+        diagnostics={diagnostics}
+        savedAt={savedAt}
+        canUndo={past.length > 0}
+        canRedo={future.length > 0}
+        onSelectScene={setSelectedSceneId}
+        onChange={commit}
+        onUndo={undo}
+        onRedo={redo}
+        onAdvanced={(targetView) => {
+          if (targetView) setView(targetView);
+          setExperienceMode("advanced");
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="studio-shell">
+    <div className="studio-shell studio-shell--advanced">
       <NavRail view={view} setView={setView} diagnostics={diagnostics} explorerOpen={explorerOpen} onToggleExplorer={() => setExplorerOpen((value) => !value)} />
       <div className="studio-main">
         <header className="topbar">
@@ -817,12 +864,27 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
                 <div className="project-switcher__menu">
                   <span>PROJECT ACTIONS</span>
                   <button onClick={() => {
-                    const restored = deepClone(exampleProject);
-                    commit(restored, "恢复内置完整示例", "system");
+                    const restored = deepClone(generatedAcceptanceProject);
+                    commit(restored, "恢复 AI 工具验收项目", "system");
                     setSelectedSceneId(restored.settings.startSceneId);
                     setView("story");
                     setProjectMenuOpen(false);
-                  }}><RefreshCcw size={13} /><div><strong>恢复完整示例</strong><small>当前状态可用撤销恢复</small></div></button>
+                  }}><RefreshCcw size={13} /><div><strong>恢复 AI 工具验收项目</strong><small>39 次工具调用 · 只包含三份真实素材</small></div></button>
+                  {window.localStorage.getItem(LEGACY_STORAGE_KEY) && (
+                    <button onClick={() => {
+                      try {
+                        const saved = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+                        if (!saved) return;
+                        const restored = parseStoryProject(JSON.parse(saved));
+                        commit(restored, "恢复上一版本地项目", "system");
+                        setSelectedSceneId(restored.settings.startSceneId);
+                        setView("story");
+                        setProjectMenuOpen(false);
+                      } catch {
+                        window.alert("上一版本地项目已损坏，无法恢复。");
+                      }
+                    }}><Archive size={13} /><div><strong>恢复上一版本地项目</strong><small>保留在 v5 存储中的原项目</small></div></button>
+                  )}
                   <button onClick={() => {
                     downloadBlob(createStoryJson(project), `${project.slug}.story.json`);
                     setProjectMenuOpen(false);
@@ -836,6 +898,7 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
             <span className="save-state"><Save size={13} /> {savedAt}</span>
           </div>
           <div className="topbar__actions">
+            <button className="simple-mode-return" onClick={() => setExperienceMode("simple")}><Sparkles size={14} /> 简单模式</button>
             <button onClick={undo} disabled={!past.length} title="撤销"><Undo2 size={16} /></button>
             <button onClick={redo} disabled={!future.length} title="重做"><Redo2 size={16} /></button>
             <button onClick={() => setHistoryOpen((value) => !value)} className={historyOpen ? "active" : ""} title="版本历史"><History size={16} /></button>
