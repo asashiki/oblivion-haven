@@ -49,7 +49,7 @@ import { NarrativeMap } from "./NarrativeMap";
 import { PreviewStage } from "./PreviewStage";
 import { SimpleStudio } from "./SimpleStudio";
 import { compileProject } from "@/lib/story/compiler";
-import { createProjectZipWithAssets, createStoryJson } from "@/lib/story/exporter";
+import { createRuntimeZipWithAssets, createStoryJson, projectBackupFileName } from "@/lib/story/exporter";
 import { generatedAcceptanceProject } from "@/lib/story/generatedAcceptance";
 import { importStoryText } from "@/lib/story/importers";
 import { AI_TOOL_CATALOG, applyPatches } from "@/lib/story/patch";
@@ -687,7 +687,7 @@ const implementedFeatures = [
   ["Terre 工程同步与 iframe 真实预览适配器", "完成（需本地 Terre）"],
   ["WebGAL 项目 ZIP、Story JSON、Blog Embed 清单", "完成"],
   ["实时 AI Provider 调用", "接口完成，Provider 未绑定"],
-  ["上传资源二进制持久化与完整 ZIP 导出", "完成（引擎仍使用共享版本）"],
+  ["上传资源二进制持久化与完整 ZIP 导出", "完成（内置 WebGAL 4.6.2）"],
 ] as const;
 
 function ExportWorkspace({ project, diagnostics }: { project: StoryProject; diagnostics: StoryDiagnostic[] }) {
@@ -701,17 +701,18 @@ function ExportWorkspace({ project, diagnostics }: { project: StoryProject; diag
     setExportState("working");
     setExportError("");
     try {
-      downloadBlob(await createProjectZipWithAssets(project), `${project.slug}-${project.version}.zip`);
+      const result = await createRuntimeZipWithAssets(project);
+      downloadBlob(result.blob, result.fileName);
       setExportState("idle");
     } catch (error) {
       setExportState("error");
       setExportError(error instanceof Error ? error.message : "导出失败");
     }
   };
-  const exportJson = () => downloadBlob(createStoryJson(project), `${project.slug}.story.json`);
+  const exportJson = () => downloadBlob(createStoryJson(project), projectBackupFileName(project));
   return (
     <div className="export-workspace">
-      <header className="workspace-title"><div><span className="eyebrow">BUILD & PUBLISH</span><h2>WebGAL 编译与导出</h2><p>Story IR 保留为源数据；脚本、Web 包和博客嵌入配置都是可重复生成的产物。</p>{exportError && <small className="export-error">{exportError}</small>}</div><div className="export-actions"><button onClick={exportJson}><FileJson size={14} /> Story JSON</button><button className="primary-button" disabled={errors.length > 0 || exportState === "working"} onClick={() => void exportZip()}><Download size={14} /> {exportState === "working" ? "正在打包素材…" : "导出 Web 游戏 ZIP"}</button></div></header>
+      <header className="workspace-title"><div><span className="eyebrow">BUILD & PUBLISH</span><h2>WebGAL 编译与导出</h2><p>正式包自带 WebGAL 4.6.2、素材、脚本与 Blog v1 清单；工程备份单独下载。</p>{exportError && <small className="export-error">{exportError}</small>}</div><div className="export-actions"><button onClick={exportJson}><FileJson size={14} /> 工程备份</button><button className="primary-button" disabled={errors.length > 0 || exportState === "working"} onClick={() => void exportZip()}><Download size={14} /> {exportState === "working" ? "正在打包素材…" : "导出正式可玩包"}</button></div></header>
       <div className="build-summary">
         <article><span>BUILD TARGET</span><strong>WebGAL {project.settings.webgalVersion}</strong><small>Static Web + Terre compatible</small></article>
         <article><span>COMPILED FILES</span><strong>{compiled.files.length}</strong><small>{project.scenes.length} scenes · {project.assets.length} assets registered</small></article>
@@ -886,9 +887,9 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
                     }}><Archive size={13} /><div><strong>恢复上一版本地项目</strong><small>保留在 v5 存储中的原项目</small></div></button>
                   )}
                   <button onClick={() => {
-                    downloadBlob(createStoryJson(project), `${project.slug}.story.json`);
+                    downloadBlob(createStoryJson(project), projectBackupFileName(project));
                     setProjectMenuOpen(false);
-                  }}><FileJson size={13} /><div><strong>下载 Story 源数据</strong><small>可移植的唯一源文件</small></div></button>
+                  }}><FileJson size={13} /><div><strong>下载工程备份</strong><small>含完整 Story IR，可重新导入编辑器</small></div></button>
                 </div>
               )}
             </div>

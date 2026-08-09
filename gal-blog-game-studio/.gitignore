@@ -42,3 +42,6 @@ next-env.d.ts
 /.vinext/
 /outputs/
 /work/
+/public/vendor/webgal/
+/public/export-smoke/
+/artifacts/

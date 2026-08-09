@@ -47,8 +47,8 @@ npm run lint
 2. 在“故事地图”新增一个片段，写下这一小段发生什么。
 3. 在当前版本可选择运行“本地规则草稿（非 AI）”，或进入高级模式精确编辑；没有 BGM 时项目保持静音。
 4. 切到“试玩修订”，使用官方 WebGAL 实机检查立绘构图、转场、点击和选项。
-5. 需要精确处理变量、WebGAL 指令或发布设置时再进入“高级模式”。
-6. 在高级模式的“编译与导出”下载 `story.project.json` 或完整 Web ZIP。
+5. 点击普通界面右上角“导出”，填写游戏 slug、版本与至少一个精确 Blog origin。
+6. 分别下载自包含的正式 runtime ZIP，或可重新导入 Studio 的工程备份 JSON；两者不会再混成同一个包。
 
 ## 目录
 
@@ -70,6 +70,8 @@ docs/                     架构、协议、格式和状态说明
 - [AI 导入、Patch 与工具 API](docs/AI_IMPORT_AND_TOOLS.md)
 - [WebGAL 编译器与 Terre](docs/WEBGAL_COMPILER.md)
 - [gal-blog Bridge 与嵌入](docs/GAL_BLOG_BRIDGE.md)
+- [正式导出 v1](docs/EXPORT_V1.md)
+- [Studio →《孤独之海》导出与宿主交接规范 v1](docs/THE_LONELY_SEA_EXPORT_HANDOFF_V1.md)
 - [已实现与待实现状态](docs/STATUS.md)
 
 ## API
@@ -82,19 +84,19 @@ docs/                     架构、协议、格式和状态说明
 
 ## WebGAL / Terre
 
-导出包按 WebGAL 工程结构生成 `game/config.txt`、`game/scene/start.txt`、各场景脚本与完整 `game/animation/`，不重写 WebGAL 引擎。Studio 的默认试玩也运行同一份编译产物，而不是另画一套“像 Galgame 的”占位 UI。示例项目锁定官方 `webgal-engine@4.6.2` 共享模块；`sharedEngineUrl` / `sharedEngineCssUrl` 也可改为部署包内的官方 dist 相对路径。
+正式导出包按 WebGAL 工程结构生成 `game/config.txt`、`game/scene/start.txt`、各场景脚本与完整 `game/animation/`，并内置固定的官方 `webgal-engine@4.6.2` 完整浏览器运行时。导出过程只读取 Studio 同源的 vendor 文件，不依赖 `sharedEngineUrl`、npm 或 CDN；`sharedEngineUrl` 仅保留给编辑器调试预览。
 
-导出的 `gal-blog-bridge.js` 会订阅 WebGAL 舞台变量。`blog-action` 在引擎中暂停，等待博客回传 success / failure / cancel，写回 Story 变量后再继续或跳转；带 `blog` / `ai` target 的自由输入会发出 `player-input` 消息与同名浏览器事件。
+导出的 Bridge 使用 `gal-blog-bridge/v1` 完整握手，校验 game/release/session/origin，并在 launch state 已应用且 WebGAL adapter 已连接后才发送 ready。`blog-action` 支持 success / failure / cancel / unsupported；save-point block 会真实发送 `save-progress`，而不是只编译成注释。
 
 若本地运行 WebGAL Terre，在项目设置中指定 `terreBaseUrl`。Studio 会复用 Terre 的工程创建、文本文件写入、导出路由与 `webgal-editor-preview-sync.v1` WebSocket 预览协议。
 
 ## 数据与安全
 
-- 浏览器自动保存只是编辑体验；下载的 `story.project.json` 才是可移植源文件。
+- 浏览器自动保存只是编辑体验；右上角导出的 `<slug>-<version>-project.json` 才是可移植工程源文件。
 - 内置三份素材作为静态项目文件随站点提供；后来上传的素材文件保存在当前浏览器的 IndexedDB，资源说明和路径进入 Story IR。跨设备或正式发布仍应接入对象存储，或把实际文件复制进 WebGAL 资源目录。
 - 当前只有可离线验证的确定性导演规则，不是 AI。真实模型 Provider、联网推理与密钥服务尚未接入；接入后仍应把模型输出限制为导演草稿、`/api/ai-tools` 工具调用或 `/api/story/patch` 操作。
-- Blog Bridge 默认校验 `allowedOrigins`、`channel`、请求 ID 和超时。生产环境不要使用通配来源。
-- Web ZIP 会读取 IndexedDB 中的真实素材二进制并写入 WebGAL 工程；任一素材读取失败会阻止导出并列出缺失项，不会只生成清单冒充完整游戏包。
+- 正式导出要求至少一个精确 http/https Blog origin，拒绝 `*`、路径和查询参数。
+- runtime ZIP 只写入实际引用的素材二进制；任一素材读取失败会阻止导出并列出对象，不会用资源清单冒充完整游戏包。
 
 ## 上游边界
 

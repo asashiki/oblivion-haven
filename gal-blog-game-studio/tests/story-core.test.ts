@@ -10,7 +10,13 @@ import { compileProject, compileScene } from "../lib/story/compiler";
 import { createDirectorDraft, reviseSceneWithInstruction } from "../lib/story/director";
 import { deleteStoryAsset, deleteStoryScene, linkRouteEdge, unlinkRouteEdge } from "../lib/story/editorOperations";
 import { exampleProject } from "../lib/story/example";
-import { createProjectZip } from "../lib/story/exporter";
+import {
+  assertBlogManifestV1,
+  buildRuntimePackage,
+  createStoryJson,
+  inspectRuntimeExport,
+  type WebGalRuntimeManifest,
+} from "../lib/story/exporter";
 import { generatedAcceptanceProject } from "../lib/story/generatedAcceptance";
 import { applySceneFigureLayout, recommendedFigureTransform, webgalFigureBaseLayout } from "../lib/story/figureFraming";
 import { importStoryText } from "../lib/story/importers";
@@ -25,7 +31,7 @@ import {
   submitInputRuntime,
 } from "../lib/story/runtime";
 import { validateProject } from "../lib/story/schema";
-import { deepClone } from "../lib/story/utils";
+import { deepClone, slugify } from "../lib/story/utils";
 import { parseWebGalSpritePackage } from "../lib/story/webgalSpritePackage";
 import { projectForWebGalPreview, webgalAssetTargetPath } from "../lib/webgalPreview";
 import { GET as getAiTools, POST as postAiTool } from "../app/api/ai-tools/route";
@@ -64,6 +70,94 @@ function createBridgeFixture() {
     },
   ];
   return project;
+}
+
+function runtimeFixture() {
+  const files = {
+    "assets/index-BuN51U1e.js": strToU8("export const W={stageManager:{subscribe(){return()=>{}},setStageVar(){},commit(){}}};\n"),
+    "assets/index-Dch1g2w9.css": strToU8("#root{display:block}\n"),
+    "webgal-serviceworker.js": strToU8("self.addEventListener('fetch',()=>{});\n"),
+  };
+  const manifest: WebGalRuntimeManifest = {
+    schema: "gal-blog-webgal-runtime/v1",
+    package: "webgal-engine",
+    version: "4.6.2",
+    entry: "assets/index-BuN51U1e.js",
+    stylesheet: "assets/index-Dch1g2w9.css",
+    files: Object.entries(files).map(([path, bytes]) => ({
+      path,
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    })),
+  };
+  return { manifest, files };
+}
+
+function assetFixture(project = exampleProject): Record<string, Uint8Array> {
+  return Object.fromEntries(project.assets.map((asset) => [asset.id, strToU8(`fixture:${asset.id}`)]));
+}
+
+type FormalBridge = {
+  prepare: () => Promise<{ scenePath: string; mode: string }>;
+  attachWebGAL: (core: unknown) => Promise<void>;
+  request: (action: string, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  dispose: () => void;
+};
+
+function formalBridgeHarness(source: string, referrer = "") {
+  const listeners = new Map<string, Array<(event: Record<string, unknown>) => void>>();
+  const sent: Array<{ message: Record<string, unknown>; origin: string }> = [];
+  const parent = referrer ? { postMessage(message: Record<string, unknown>, origin: string) { sent.push({ message, origin }); } } : undefined;
+  const windowMock: Record<string, unknown> = {
+    parent,
+    addEventListener(type: string, listener: (event: Record<string, unknown>) => void) {
+      listeners.set(type, [...(listeners.get(type) || []), listener]);
+    },
+    removeEventListener(type: string, listener: (event: Record<string, unknown>) => void) {
+      listeners.set(type, (listeners.get(type) || []).filter((item) => item !== listener));
+    },
+    dispatchEvent() { return true; },
+  };
+  if (!parent) windowMock.parent = windowMock;
+  const documentMock = {
+    referrer,
+    body: { appendChild() {} },
+    createElement: () => ({ id: "", textContent: "", style: {}, remove() {} }),
+    getElementById: () => undefined,
+  };
+  vm.runInNewContext(source, {
+    window: windowMock,
+    document: documentMock,
+    location: { href: "https://game.example.test/index.html" },
+    crypto: { randomUUID: () => "session-test" },
+    CustomEvent: class { constructor() {} },
+    MouseEvent: class {},
+    TextEncoder,
+    URL,
+    Map,
+    Set,
+    Promise,
+    Object,
+    Array,
+    Boolean,
+    Date,
+    Error,
+    Math,
+    Number,
+    String,
+    console,
+    queueMicrotask,
+    setTimeout,
+    clearTimeout,
+  });
+  return {
+    bridge: windowMock.GalBlogBridgeV1 as FormalBridge,
+    parent: parent as Record<string, unknown> | undefined,
+    sent,
+    receive(event: Record<string, unknown>) {
+      (listeners.get("message") || []).forEach((listener) => listener(event));
+    },
+  };
 }
 
 test("最小可玩项目通过 Story IR 引用校验", () => {
@@ -831,20 +925,170 @@ test("AI 连接剧情节点会写入合法主干边并由编译器执行", () =>
   assert.equal(validateProject(result.project).filter((item) => item.severity === "error").length, 0);
 });
 
-test("Web ZIP 同时包含可运行产物、Story 源数据与资源清单", async () => {
-  const archive = createProjectZip(exampleProject);
-  const files = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+test("正式运行包与工程备份彻底分离，并通过 Blog v1 契约", async () => {
+  const project = deepClone(exampleProject);
+  project.settings.blogBridge.allowedOrigins = ["http://localhost:4321"];
+  const runtime = runtimeFixture();
+  const result = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  const files = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
+
   assert.ok(files["index.html"]);
   assert.ok(files["game/scene/start.txt"]);
   assert.ok(files["game/scene/scene_teatime.txt"]);
-  assert.ok(files["game/scene/scene_bookmark.txt"]);
-  assert.ok(files["story.project.json"]);
-  assert.ok(files["assets.required.json"]);
   assert.ok(files["game/animation/animationTable.json"]);
-  assert.ok(files["game/animation/enter-from-right.json"]);
-  assert.ok(files["THIRD_PARTY_NOTICES.md"]);
-  assert.match(strFromU8(files["gal-blog.embed.json"]), /routeNodes/);
-  assert.match(strFromU8(files["gal-blog.embed.json"]), /layoutDirection/);
+  assert.ok(files["game/extensions/entry.js"]);
+  assert.ok(files["game/template/template.json"]);
+  assert.ok(files["vendor/webgal/assets/index-BuN51U1e.js"]);
+  assert.ok(files["integrity.json"]);
+  assert.equal(files["story.project.json"], undefined);
+  assert.equal(files["assets.required.json"], undefined);
+  assert.doesNotMatch(strFromU8(files["index.html"]), /cdn\.jsdelivr|unpkg|https:\/\/.*webgal/i);
+
+  const manifest = JSON.parse(strFromU8(files["gal-blog.embed.json"]));
+  assertBlogManifestV1(manifest);
+  assert.equal(manifest.schema, "gal-blog-game-package/v1");
+  assert.equal(manifest.launchTargets.start.id, "start");
+  assert.deepEqual(manifest.bridge.allowedHostOrigins, ["http://localhost:4321"]);
+  assert.equal(result.fileName, `${project.slug}-${manifest.game.releaseId}-runtime.zip`);
+
+  const backup = JSON.parse(await createStoryJson(project).text());
+  assert.equal(backup.schemaVersion, "1.0.0");
+  assert.equal(backup.id, project.id);
+});
+
+test("releaseId 可复现，剧情、CSS 与扩展变化都会产生新版本", async () => {
+  const project = deepClone(exampleProject);
+  project.settings.blogBridge.allowedOrigins = ["https://blog.example.test"];
+  const runtime = runtimeFixture();
+  const first = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  const again = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  assert.equal(first.manifest.game.releaseId, again.manifest.game.releaseId);
+
+  const changedStory = deepClone(project);
+  const dialogue = changedStory.scenes[0].blocks.find((block) => block.type === "dialogue");
+  if (dialogue?.type === "dialogue") dialogue.text += "（修订）";
+  const storyResult = await buildRuntimePackage(changedStory, runtime.manifest, runtime.files, assetFixture(changedStory));
+  const cssResult = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project), { customCss: "body{color:red}" });
+  const extensionResult = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project), { extensionJs: "window.authorExtension=true;" });
+  assert.notEqual(first.manifest.game.releaseId, storyResult.manifest.game.releaseId);
+  assert.notEqual(first.manifest.game.releaseId, cssResult.manifest.game.releaseId);
+  assert.notEqual(first.manifest.game.releaseId, extensionResult.manifest.game.releaseId);
+});
+
+test("integrity 可逐文件重算且 ZIP 路径全部安全", async () => {
+  const project = deepClone(exampleProject);
+  project.settings.blogBridge.allowedOrigins = ["https://blog.example.test"];
+  const runtime = runtimeFixture();
+  const result = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  for (const file of result.integrity.files) {
+    const bytes = result.entries[file.path];
+    assert.ok(bytes, file.path);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), file.sha256);
+    assert.equal(bytes.byteLength, file.bytes);
+  }
+  assert.ok(Object.keys(result.entries).every((path) => !path.startsWith("/") && !path.includes("\\") && !path.split("/").includes("..")));
+});
+
+test("正式发布检查拒绝空 origin 与 Blog v1 未知动作", () => {
+  const project = deepClone(exampleProject);
+  assert.ok(inspectRuntimeExport(project).some((issue) => issue.code === "BLOG_ORIGIN_EMPTY"));
+  project.settings.blogBridge.allowedOrigins = ["https://blog.example.test"];
+  project.scenes[0].blocks.push({ id: "legacy-action", type: "blog-action", action: "view-comments" });
+  assert.ok(inspectRuntimeExport(project).some((issue) => issue.code === "BLOG_ACTION_UNSUPPORTED"));
+});
+
+test("正式 Bridge 使用 v1 信封、input payload 与 response.value，并让存档点实际发起请求", async () => {
+  const project = deepClone(exampleProject);
+  project.settings.blogBridge.allowedOrigins = ["https://blog.example.test"];
+  project.variables.push({ id: "var_result", name: "result_value", type: "string", defaultValue: "", scope: "save" });
+  project.savePoints = [{ id: "save_after_intro", name: "介绍后", sceneId: project.scenes[0].id }];
+  project.scenes[0].blocks.push(
+    { id: "save_block", type: "save-point", savePointId: "save_after_intro", auto: true },
+    { id: "runtime_data", type: "blog-action", action: "get-runtime-data", payload: { key: "heartRate" }, resultVariableId: "var_result" },
+  );
+  const runtime = runtimeFixture();
+  const result = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  const bridge = strFromU8(result.entries["gal-blog-bridge.js"]);
+  const scene = strFromU8(result.entries[`game/scene/scene_${slugify(project.scenes[0].slug || project.scenes[0].name)}.txt`]);
+  assert.match(bridge, /protocol.*gal-blog-bridge\/v1/);
+  assert.match(bridge, /payload: \{ action, input \}/);
+  assert.match(bridge, /scalar\(response\.value\) \? response\.value : status/);
+  assert.match(bridge, /\["success", "failure", "cancel", "unsupported"\]/);
+  assert.match(scene, /setVar:__galblog_request=save_/);
+  assert.match(bridge, /save-progress/);
+});
+
+test("正式 Bridge 严格完成 hello → launch → ready 并注入白名单状态", async () => {
+  const project = deepClone(exampleProject);
+  project.settings.blogBridge.allowedOrigins = ["https://blog.example.test"];
+  project.variables = [
+    { id: "player_name", name: "player_name_runtime", type: "string", defaultValue: "主人", scope: "save" },
+    { id: "visit_count", name: "visit_count_runtime", type: "number", defaultValue: 0, scope: "global" },
+  ];
+  project.records = [{ id: "met_alice", name: "见过爱丽丝" }];
+  const runtime = runtimeFixture();
+  const result = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  const harness = formalBridgeHarness(strFromU8(result.entries["gal-blog-bridge.js"]), "https://blog.example.test/page");
+  const launchPromise = harness.bridge.prepare();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const hello = harness.sent.find((item) => item.message.type === "hello")?.message;
+  assert.equal(hello?.protocol, "gal-blog-bridge/v1");
+  assert.equal(hello?.sessionId, "session-test");
+
+  harness.receive({
+    source: harness.parent,
+    origin: "https://evil.example.test",
+    data: { ...hello, source: "gal-blog", type: "launch", id: "bad", payload: { target: { kind: "start", id: "start" } } },
+  });
+  harness.receive({
+    source: harness.parent,
+    origin: "https://blog.example.test",
+    data: {
+      protocol: "gal-blog-bridge/v1",
+      channel: "gal-blog-game",
+      source: "gal-blog",
+      gameId: project.id,
+      releaseId: result.manifest.game.releaseId,
+      sessionId: "session-test",
+      type: "launch",
+      id: "launch-1",
+      payload: {
+        target: { kind: "scene", id: "scene_teatime" },
+        state: { variables: { player_name: "旅人", visit_count: 7 }, records: ["met_alice"] },
+      },
+    },
+  });
+  const launch = await launchPromise;
+  assert.equal(launch.scenePath, "game/scene/__launch_scene_scene-teatime.txt");
+  const gameVar: Record<string, unknown> = {};
+  await harness.bridge.attachWebGAL({
+    stageManager: {
+      subscribe() { return () => {}; },
+      setStageVar({ key, value }: { key: string; value: unknown }) { gameVar[key] = value; },
+      commit() {},
+      getViewStageState() { return { GameVar: gameVar }; },
+    },
+  });
+  assert.equal(gameVar.player_name_runtime, "旅人");
+  assert.equal(gameVar.visit_count_runtime, 7);
+  assert.equal(gameVar["__story_record_met-alice"], true);
+  assert.equal(gameVar.__galblog_resume, true);
+  assert.ok(harness.sent.some((item) => item.message.type === "ready"));
+  harness.bridge.dispose();
+});
+
+test("正式 Bridge 独立运行不伪造成功，unsupported 可被剧情处理", async () => {
+  const project = deepClone(exampleProject);
+  project.settings.blogBridge.allowedOrigins = ["https://blog.example.test"];
+  const runtime = runtimeFixture();
+  const result = await buildRuntimePackage(project, runtime.manifest, runtime.files, assetFixture(project));
+  const harness = formalBridgeHarness(strFromU8(result.entries["gal-blog-bridge.js"]));
+  const launch = await harness.bridge.prepare();
+  assert.equal(launch.mode, "standalone");
+  const response = await harness.bridge.request("get-runtime-data", { key: "heartRate" });
+  assert.equal(response.status, "unsupported");
+  assert.equal(harness.sent.length, 0);
+  harness.bridge.dispose();
 });
 
 test("HTTP API 暴露工具目录、局部工具、Patch 与编译链路", async () => {

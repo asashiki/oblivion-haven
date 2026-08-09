@@ -258,6 +258,7 @@ export type BlogActionName =
   | "open-article"
   | "return-menu"
   | "open-comment-form"
+  | "get-runtime-data"
   | "view-comments"
   | "submit-friend-link"
   | "upload-image"

@@ -123,6 +123,25 @@
   background: #354586;
 }
 
+.simple-top-export {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid #c7cde2;
+  border-radius: 7px;
+  background: #fff;
+  color: #405092;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.simple-top-export:hover {
+  border-color: #8e99c8;
+  background: #f5f6fc;
+}
+
 .simple-editor-body {
   display: flex;
   min-height: 0;

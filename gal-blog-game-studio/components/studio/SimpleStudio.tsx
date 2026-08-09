@@ -24,7 +24,9 @@ import {
   ChevronRight,
   CircleHelp,
   Copy,
+  Download,
   FileAudio,
+  FileJson,
   Film,
   FolderHeart,
   Gamepad2,
@@ -60,6 +62,12 @@ import { ChangeEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { FigureStageEditor } from "./FigureStageEditor";
 import { resolveRegisteredAssetUrl } from "@/lib/assetUrl";
+import {
+  createRuntimeZipWithAssets,
+  createStoryJson,
+  inspectRuntimeExport,
+  projectBackupFileName,
+} from "@/lib/story/exporter";
 import { createDirectorDraft, reviseSceneWithInstruction, type DirectorDraft } from "@/lib/story/director";
 import { WEBGAL_ANIMATION_PRESETS } from "@/lib/story/performancePresets";
 import { prepareWebGalPreview } from "@/lib/webgalPreview";
@@ -95,7 +103,7 @@ import type {
   StoryRecord,
   StoryScene,
 } from "@/lib/story/types";
-import { createId, nowIso, slugify } from "@/lib/story/utils";
+import { createId, downloadBlob, nowIso, slugify } from "@/lib/story/utils";
 import { parseWebGalSpritePackage } from "@/lib/story/webgalSpritePackage";
 
 type SnapshotActor = "human" | "ai" | "import" | "system";
@@ -2169,6 +2177,103 @@ function CreationDialog({ kind, project, selectedSceneId, onClose, onCreateScene
   );
 }
 
+function RuntimeExportDialog({ project, onChange, onClose }: {
+  project: StoryProject;
+  onChange: Props["onChange"];
+  onClose: () => void;
+}) {
+  const [slug, setSlug] = useState(project.slug);
+  const [version, setVersion] = useState(project.version);
+  const [originsText, setOriginsText] = useState(project.settings.blogBridge.allowedOrigins.join("\n"));
+  const [state, setState] = useState<"idle" | "runtime" | "backup" | "done" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const origins = useMemo(() => originsText.split(/[\n,]/).map((item) => item.trim()).filter(Boolean), [originsText]);
+  const configured = useMemo<StoryProject>(() => ({
+    ...project,
+    slug: slug.trim(),
+    version: version.trim(),
+    settings: {
+      ...project.settings,
+      webgalVersion: "4.6.2",
+      blogBridge: {
+        ...project.settings.blogBridge,
+        enabled: true,
+        channel: "gal-blog-game",
+        allowedOrigins: origins,
+        capabilities: ["return-menu", "open-article", "save-progress", "open-comment-form", "get-runtime-data"],
+      },
+    },
+  }), [origins, project, slug, version]);
+  const issues = useMemo(() => inspectRuntimeExport(configured, { allowedHostOrigins: origins }), [configured, origins]);
+  const errors = issues.filter((issue) => issue.severity === "error");
+
+  const persistSettings = () => {
+    if (configured.slug === project.slug
+      && configured.version === project.version
+      && JSON.stringify(configured.settings.blogBridge) === JSON.stringify(project.settings.blogBridge)
+      && configured.settings.webgalVersion === project.settings.webgalVersion) return;
+    onChange(configured, "更新正式导出设置");
+  };
+
+  const exportRuntime = async () => {
+    if (errors.length) return;
+    setState("runtime");
+    setMessage("正在收集内置引擎、剧本和已引用素材…");
+    try {
+      const result = await createRuntimeZipWithAssets(configured, { allowedHostOrigins: origins });
+      downloadBlob(result.blob, result.fileName);
+      persistSettings();
+      setState("done");
+      setMessage(`正式包已生成 · ${result.manifest.game.releaseId}`);
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "正式包导出失败");
+    }
+  };
+
+  const exportBackup = () => {
+    setState("backup");
+    try {
+      downloadBlob(createStoryJson(configured), projectBackupFileName(configured));
+      persistSettings();
+      setState("done");
+      setMessage("工程备份已生成；它可重新导入 Studio，不是公开游戏包。");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "工程备份导出失败");
+    }
+  };
+
+  return (
+    <div className="runtime-export-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="runtime-export-dialog" role="dialog" aria-modal="true" aria-labelledby="runtime-export-title">
+        <header>
+          <div><span>正式发布</span><h2 id="runtime-export-title">导出可玩的游戏</h2><p>公开运行包与可重新编辑的工程备份分开生成。</p></div>
+          <button onClick={onClose} aria-label="关闭导出面板"><X size={18} /></button>
+        </header>
+        <div className="runtime-export-fields">
+          <label><span>游戏 slug</span><input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="alice-tea-room" /><small>用于 Blog 的固定目录名；发布后不要随意改名。</small></label>
+          <label><span>游戏版本</span><input value={version} onChange={(event) => setVersion(event.target.value)} placeholder="0.1.0" /><small>releaseId 会在版本后追加内容指纹。</small></label>
+          <label className="runtime-export-origins"><span>允许嵌入的 Blog origin</span><textarea value={originsText} onChange={(event) => setOriginsText(event.target.value)} rows={3} placeholder={"https://your-blog.example\nhttp://localhost:4321"} /><small>每行一个精确 origin，必须包含 http/https；不允许 *、路径或查询参数。</small></label>
+        </div>
+        <div className={`runtime-export-check ${errors.length ? "has-errors" : "is-ready"}`}>
+          <div><strong>{errors.length ? `还有 ${errors.length} 项会阻止发布` : "发布检查通过"}</strong><span>{errors.length ? "修正后才会读取素材和打包。" : "将内置 WebGAL 4.6.2，并生成版本清单与逐文件校验。"}</span></div>
+          <ul>
+            {issues.map((issue, index) => <li key={`${issue.code}-${index}`} className={issue.severity}><b>{issue.severity === "error" ? "阻止" : "提醒"}</b><span>{issue.message}</span></li>)}
+            {!issues.length && <li><b>完成</b><span>剧情引用、启动目标、Blog 合约和导出路径均可发布。</span></li>}
+          </ul>
+        </div>
+        <div className="runtime-export-products">
+          <article><div><Download size={20} /><span><strong>正式可玩包</strong><small>自包含 runtime ZIP · 可独立静态运行 · 可由 Blog iframe 加载</small></span></div><button className="simple-primary" disabled={errors.length > 0 || state === "runtime"} onClick={() => void exportRuntime()}>{state === "runtime" ? "正在打包…" : "导出正式可玩包"}</button></article>
+          <article><div><FileJson size={20} /><span><strong>工程备份</strong><small>完整 Story IR · 用于回到 Studio 继续编辑 · 不含 API 密钥</small></span></div><button disabled={state === "backup"} onClick={exportBackup}>{state === "backup" ? "正在生成…" : "导出工程备份"}</button></article>
+        </div>
+        {message && <p className={`runtime-export-message ${state}`}>{message}</p>}
+        <footer><span>正式包根目录可直接部署；不要把工程备份放进公开游戏目录。</span><button onClick={onClose}>完成</button></footer>
+      </section>
+    </div>
+  );
+}
+
 export function SimpleStudio({
   project,
   selectedSceneId,
@@ -2184,6 +2289,7 @@ export function SimpleStudio({
 }: Props) {
   const [section, setSection] = useState<SimpleSection>("story");
   const [creationKind, setCreationKind] = useState<"scene" | "chapter">();
+  const [exportOpen, setExportOpen] = useState(false);
   const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   const activeSection = sectionItems.find((item) => item.id === section)!;
   const ActiveSectionIcon = activeSection.icon;
@@ -2267,6 +2373,7 @@ export function SimpleStudio({
             <span />{errors.length ? `${errors.length} 个问题` : "项目正常"}
           </button>
           <button className="simple-top-preview" onClick={() => setSection("preview")}><Play size={14} fill="currentColor" /> 试玩</button>
+          <button className="simple-top-export" onClick={() => setExportOpen(true)}><Download size={14} /> 导出</button>
           <button className="advanced-entry" onClick={() => onAdvanced()}><Settings2 size={15} /><span>高级模式</span></button>
         </div>
       </header>
@@ -2342,6 +2449,7 @@ export function SimpleStudio({
           onCreateChapter={createChapter}
         />
       )}
+      {exportOpen && <RuntimeExportDialog project={project} onChange={onChange} onClose={() => setExportOpen(false)} />}
     </div>
   );
 }
