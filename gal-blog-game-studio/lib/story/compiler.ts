@@ -300,7 +300,7 @@ function blockLabel(blockId: string): string {
   return `__block_${slugify(blockId)}`;
 }
 
-function runtimeHookToken(kind: "action" | "input" | "ai", sceneId: string, blockId: string): string {
+function runtimeHookToken(kind: "action" | "input" | "ai" | "save", sceneId: string, blockId: string): string {
   return `${kind}_${slugify(sceneId)}_${slugify(blockId)}`;
 }
 
@@ -489,7 +489,12 @@ function compileBlock(project: StoryProject, scene: StoryScene, block: StoryBloc
         ? [`; @story-mode nvl dim=${block.dimBackground ?? 0.38}`, "setTextbox:hide;"]
         : ["; @story-mode adv", "setTextbox:show;"];
     case "save-point":
-      return [`; @save-point ${JSON.stringify({ id: block.savePointId, auto: block.auto ?? false })}`];
+      return [
+        `; @save-point ${JSON.stringify({ id: block.savePointId, auto: block.auto ?? false })}`,
+        "setVar:__galblog_status=pending;",
+        `setVar:__galblog_request=${runtimeHookToken("save", scene.id, block.id)};`,
+        "wait:600000;",
+      ];
     case "blog-action": {
       const token = runtimeHookToken("action", scene.id, block.id);
       const lines = [
@@ -505,7 +510,10 @@ function compileBlock(project: StoryProject, scene: StoryScene, block: StoryBloc
       ] as const;
       branches.forEach(([status, sceneId]) => {
         const target = project.scenes.find((item) => item.id === sceneId);
-        if (target) lines.push(`changeScene:${sceneFileName(target)} -when=__galblog_status=='${status}';`);
+        if (target) {
+          lines.push(`changeScene:${sceneFileName(target)} -when=__galblog_status=='${status}';`);
+          if (status === "failure") lines.push(`changeScene:${sceneFileName(target)} -when=__galblog_status=='unsupported';`);
+        }
       });
       return lines;
     }
@@ -617,37 +625,56 @@ function compileConfig(project: StoryProject): string {
   ].join("\n") + "\n";
 }
 
-function compileStart(project: StoryProject): string {
-  const startScene = project.scenes.find((scene) => scene.id === project.settings.startSceneId);
+export function compileLaunchBootstrap(project: StoryProject, sceneId: string): string {
+  const startScene = project.scenes.find((scene) => scene.id === sceneId);
+  const fresh = " -when=__galblog_resume!=true";
   const lines = [
     "; Story IR bootstrap",
     ...project.variables
       .filter((variable) => variable.scope !== "scene")
-      .map((variable) => `setVar:${variable.name}=${variableValue(variable.defaultValue)} -global -next;`),
-    ...(project.records || []).map((record) => `setVar:${recordVariableName(project, record.id)}=false -global -next;`),
+      .map((variable) => `setVar:${variable.name}=${variableValue(variable.defaultValue)} -global -next${fresh};`),
+    ...(project.records || []).map((record) => `setVar:${recordVariableName(project, record.id)}=false -global -next${fresh};`),
     startScene ? `changeScene:${sceneFileName(startScene)};` : "; ERROR: start scene missing",
   ];
   return `${lines.join("\n")}\n`;
 }
 
+function compileStart(project: StoryProject): string {
+  return compileLaunchBootstrap(project, project.settings.startSceneId);
+}
+
 function compileBridgeRuntime(project: StoryProject): string {
   const config = JSON.stringify(project.settings.blogBridge);
-  const actionManifest = Object.fromEntries(
-    project.scenes.flatMap((scene) =>
-      scene.blocks
-        .filter((block): block is Extract<StoryBlock, { type: "blog-action" }> => block.type === "blog-action")
-        .map((block) => [
-          runtimeHookToken("action", scene.id, block.id),
-          {
+  type BridgeActionManifestEntry = [string, {
+    blockId: string;
+    sceneId: string;
+    action: string;
+    payload: Record<string, unknown>;
+    resultVariable?: string;
+  }];
+  const actionManifestEntries: BridgeActionManifestEntry[] = project.scenes.flatMap((scene) =>
+    scene.blocks.flatMap((block): BridgeActionManifestEntry[] => {
+      if (block.type === "blog-action") return [[runtimeHookToken("action", scene.id, block.id), {
             blockId: block.id,
             sceneId: scene.id,
             action: block.action === "custom" ? block.customAction || "custom" : block.action,
             payload: block.payload || {},
             resultVariable: block.resultVariableId ? variableName(project, block.resultVariableId) : undefined,
-          },
-        ]),
-    ),
+          }]];
+      if (block.type === "save-point") {
+        const point = project.savePoints.find((item) => item.id === block.savePointId);
+        if (!point) return [];
+        return [[runtimeHookToken("save", scene.id, block.id), {
+          blockId: block.id,
+          sceneId: scene.id,
+          action: "save-progress",
+          payload: { target: { kind: "save-point", id: point.id }, title: point.name, scene: scene.name },
+        }]];
+      }
+      return [];
+    }),
   );
+  const actionManifest = Object.fromEntries(actionManifestEntries);
   const inputManifest = Object.fromEntries(
     project.scenes.flatMap((scene) =>
       scene.blocks

@@ -3337,3 +3337,192 @@ body {
     min-width: 260px;
   }
 }
+
+.runtime-export-overlay {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 22, 31, 0.42);
+  backdrop-filter: blur(10px);
+}
+
+.runtime-export-dialog {
+  display: flex;
+  width: min(820px, 100%);
+  max-height: min(880px, calc(100vh - 40px));
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid #d9d5e3;
+  border-radius: 18px;
+  background: #fffefa;
+  box-shadow: 0 28px 90px rgba(27, 23, 42, 0.24);
+}
+
+.runtime-export-dialog > header,
+.runtime-export-dialog > footer,
+.runtime-export-products article,
+.runtime-export-products article > div,
+.runtime-export-check > div {
+  display: flex;
+  align-items: center;
+}
+
+.runtime-export-dialog > header {
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.runtime-export-dialog > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.runtime-export-dialog > header span {
+  color: #7b71a7;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .16em;
+}
+
+.runtime-export-dialog h2,
+.runtime-export-dialog p {
+  margin: 0;
+}
+
+.runtime-export-dialog h2 {
+  color: #302c3b;
+  font-size: 22px;
+}
+
+.runtime-export-dialog > header p,
+.runtime-export-dialog > footer span {
+  color: #8c8694;
+  font-size: 12px;
+}
+
+.runtime-export-dialog > header > button,
+.runtime-export-dialog > footer > button {
+  border: 1px solid #ddd8e5;
+  border-radius: 9px;
+  background: #fff;
+  color: #706a79;
+}
+
+.runtime-export-dialog > header > button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+}
+
+.runtime-export-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.runtime-export-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.runtime-export-fields label > span {
+  color: #4f485b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.runtime-export-fields input,
+.runtime-export-fields textarea {
+  width: 100%;
+  border: 1px solid #dcd7e5;
+  border-radius: 9px;
+  background: #fff;
+  color: #383340;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.runtime-export-fields input { height: 38px; padding: 0 11px; }
+.runtime-export-fields textarea { min-height: 76px; padding: 9px 11px; resize: vertical; }
+.runtime-export-fields small { color: #9a94a0; font-size: 10px; line-height: 1.45; }
+.runtime-export-origins { grid-column: 1 / -1; }
+
+.runtime-export-check {
+  overflow: hidden;
+  border: 1px solid #d9e5df;
+  border-radius: 12px;
+  background: #f7fbf8;
+}
+
+.runtime-export-check.has-errors {
+  border-color: #ecd6dc;
+  background: #fff8f9;
+}
+
+.runtime-export-check > div {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(130, 145, 137, .14);
+}
+
+.runtime-export-check > div strong { color: #467561; font-size: 12px; }
+.runtime-export-check.has-errors > div strong { color: #a5566d; }
+.runtime-export-check > div span { color: #888290; font-size: 10px; }
+.runtime-export-check ul { display: grid; max-height: 156px; overflow: auto; margin: 0; padding: 8px 14px 10px; list-style: none; }
+.runtime-export-check li { display: grid; grid-template-columns: 40px 1fr; gap: 8px; padding: 4px 0; color: #706a78; font-size: 10px; line-height: 1.45; }
+.runtime-export-check li b { color: #59917a; }
+.runtime-export-check li.error b { color: #bc607a; }
+.runtime-export-check li.warning b { color: #a2793f; }
+
+.runtime-export-products {
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-export-products article {
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid #e0dce7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.runtime-export-products article > div { min-width: 0; gap: 11px; color: #6b61a1; }
+.runtime-export-products article > div span { display: grid; min-width: 0; gap: 3px; }
+.runtime-export-products strong { color: #393341; font-size: 12px; }
+.runtime-export-products small { color: #8d8794; font-size: 10px; line-height: 1.45; }
+.runtime-export-products button { min-width: 146px; height: 34px; border: 1px solid #d8d3e1; border-radius: 8px; background: #fff; color: #625b70; font-size: 11px; font-weight: 700; }
+.runtime-export-products button.simple-primary { border-color: #6557aa; background: #6557aa; color: #fff; }
+.runtime-export-products button:disabled { cursor: not-allowed; opacity: .48; }
+
+.runtime-export-message {
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #f1eff8;
+  color: #655b8a;
+  font-size: 11px;
+  white-space: pre-line;
+}
+
+.runtime-export-message.error { background: #fff0f3; color: #aa506b; }
+.runtime-export-dialog > footer { justify-content: space-between; gap: 16px; padding-top: 2px; }
+.runtime-export-dialog > footer > button { height: 34px; padding: 0 16px; font-size: 11px; font-weight: 700; }
+
+@media (max-width: 700px) {
+  .runtime-export-overlay { padding: 8px; }
+  .runtime-export-dialog { max-height: calc(100vh - 16px); padding: 18px; }
+  .runtime-export-fields { grid-template-columns: 1fr; }
+  .runtime-export-origins { grid-column: auto; }
+  .runtime-export-check > div,
+  .runtime-export-products article,
+  .runtime-export-dialog > footer { align-items: flex-start; flex-direction: column; }
+  .runtime-export-products button { width: 100%; }
+}
