@@ -13,6 +13,7 @@ import {
   recommendedFigureTransform,
   type FigureShot,
 } from "./figureFraming";
+import { nextChoiceGroupIdentity } from "./choiceGroups";
 import { createId, nowIso } from "./utils";
 
 export type DirectorMatch = {
@@ -230,20 +231,21 @@ function extractChoiceLabels(brief: string): string[] {
   return ["继续问下去", "换一个话题", "先安静地陪着她"];
 }
 
-function createChoice(brief: string, loopTargetId?: string): StoryBlock | undefined {
+function createChoice(brief: string): StoryBlock | undefined {
   const labels = extractChoiceLabels(brief);
   if (!labels.length) return undefined;
+  const id = createId("choice");
   const wantsLoop = /循环|返回(?:最开始|开头|选项菜单)|选完.+返回/.test(brief);
   const options: ChoiceOption[] = labels.map((label) => ({
     id: createId("option"),
     label,
     operations: [],
   }));
-  if (wantsLoop && loopTargetId) {
-    options.push({ id: createId("option"), label: "返回刚才的话题", targetBlockId: loopTargetId });
+  if (wantsLoop) {
+    options.push({ id: createId("option"), label: "返回刚才的话题", targetChoiceGroupId: id });
   }
   return {
-    id: createId("choice"),
+    id,
     type: "choice",
     prompt: /去了哪里/.test(brief) ? "今天去了哪里？" : "接下来怎么回应？",
     options,
@@ -350,8 +352,8 @@ export function createDirectorDraft(project: StoryProject, sceneId: string, rawB
   const dialogue = explicitDialogue(brief, project, character, position);
   const storyLines = dialogue.length ? dialogue : generatedDialogue(character, brief, expression?.id, position);
   blocks.push(...storyLines);
-  const choice = createChoice(brief, storyLines[0]?.id);
-  if (choice) blocks.push(choice);
+  const choice = createChoice(brief);
+  if (choice?.type === "choice") blocks.push({ ...choice, ...nextChoiceGroupIdentity(project, scene) });
 
   const protectedFlow = scene.blocks.filter(isProtectedFlowBlock).map(safeProtectedFlowBlock);
   blocks.push(...protectedFlow);

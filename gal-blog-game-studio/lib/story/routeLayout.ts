@@ -14,7 +14,7 @@ export function layoutRoutesTopDown(
 ): RouteNode[] {
   const centerX = options.centerX ?? 360;
   const top = options.top ?? 56;
-  const laneGap = options.laneGap ?? 224;
+  const laneGap = options.laneGap ?? 316;
   const levelGap = options.levelGap ?? 142;
   const ids = new Set(nodes.map((node) => node.id));
   const outgoing = new Map<string, string[]>();
@@ -29,26 +29,29 @@ export function layoutRoutesTopDown(
   const roots = nodes
     .filter((node) => node.kind === "start" || (indegree.get(node.id) || 0) === 0)
     .sort((a, b) => a.x - b.x);
-  const queue = roots.length ? [...roots] : nodes.slice(0, 1);
-  const depth = new Map(queue.map((node) => [node.id, 0]));
-  const pendingIndegree = new Map(indegree);
-
-  while (queue.length) {
-    const current = queue.shift()!;
-    const currentDepth = depth.get(current.id) || 0;
-    (outgoing.get(current.id) || []).forEach((targetId) => {
-      depth.set(targetId, Math.max(depth.get(targetId) || 0, currentDepth + 1));
-      pendingIndegree.set(targetId, Math.max(0, (pendingIndegree.get(targetId) || 0) - 1));
-      if (pendingIndegree.get(targetId) === 0) {
+  const depth = new Map(roots.map((node) => [node.id, 0]));
+  const visitFrom = (seed: RouteNode, seedDepth: number) => {
+    if (!depth.has(seed.id)) depth.set(seed.id, seedDepth);
+    const queue = [seed];
+    while (queue.length) {
+      const current = queue.shift()!;
+      const currentDepth = depth.get(current.id) || 0;
+      (outgoing.get(current.id) || []).forEach((targetId) => {
+        if (depth.has(targetId)) return;
+        depth.set(targetId, currentDepth + 1);
         const target = nodes.find((node) => node.id === targetId);
         if (target) queue.push(target);
-      }
-    });
-  }
+      });
+    }
+  };
+  roots.forEach((root) => visitFrom(root, 0));
 
   let fallbackDepth = Math.max(0, ...depth.values());
   nodes.forEach((node) => {
-    if (!depth.has(node.id)) depth.set(node.id, ++fallbackDepth);
+    if (depth.has(node.id)) return;
+    fallbackDepth += 1;
+    visitFrom(node, fallbackDepth);
+    fallbackDepth = Math.max(fallbackDepth, ...depth.values());
   });
 
   const levels = new Map<number, RouteNode[]>();
@@ -79,4 +82,3 @@ export function routeStoredPosition(
 ) {
   return direction === "top-down" ? position : { x: position.y, y: position.x };
 }
-

@@ -1,4 +1,5 @@
 import { compileProject, compileScene } from "./compiler";
+import { nextChoiceGroupIdentity } from "./choiceGroups";
 import { AI_TOOL_CATALOG, applyPatches } from "./patch";
 import { routeDisplayPosition, routeStoredPosition } from "./routeLayout";
 import { validateProject } from "./schema";
@@ -306,10 +307,12 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
         enabledCondition: typeof option.enabledCondition === "string" ? option.enabledCondition : undefined,
         operations: Array.isArray(option.operations) ? option.operations as VariableOperation[] : undefined,
       })) satisfies ChoiceOption[];
+      const identity = nextChoiceGroupIdentity(project, project.scenes[target]);
       return insertBlock(project, sceneId!, {
         id: createId("choice"),
         type: "choice",
-        groupCode: textArg(args, "groupCode", false),
+        groupCode: textArg(args, "groupCode", false) || identity.groupCode,
+        groupName: textArg(args, "groupName", false) || identity.groupName,
         prompt: textArg(args, "prompt", false),
         options,
         source: "ai",

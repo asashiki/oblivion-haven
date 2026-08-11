@@ -117,6 +117,11 @@ export type DialogueBlock = BlockBase & {
   transform?: StageTransform;
   enter?: TransitionSpec;
   textEffect?: "none" | "shake" | "fade" | "typewriter";
+  /** Per-line overrides for image-sprite mouth sync and blinking. */
+  figureAnimation?: {
+    mouthSync?: "inherit" | "on" | "off";
+    blink?: "inherit" | "dynamic" | "fixed-open" | "fixed-closed" | "none";
+  };
   /** Optional one-line reactions selected by the immediately preceding choice group. */
   choiceReactions?: Array<{
     choiceBlockId: Id;
@@ -193,6 +198,8 @@ export type ChoiceBlock = BlockBase & {
   type: "choice";
   /** Stable author-facing number such as S02-Q01. */
   groupCode?: string;
+  /** Unique author-facing name used by the simple editor's destination picker. */
+  groupName?: string;
   prompt?: string;
   options: ChoiceOption[];
 };

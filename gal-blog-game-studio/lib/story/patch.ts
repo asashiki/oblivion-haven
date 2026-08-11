@@ -143,7 +143,7 @@ export const AI_TOOL_CATALOG = [
   { name: "set_text_mode", description: "切换 ADV/NVL 文本模式。", args: ["sceneId", "mode", "index?"] },
   { name: "set_voice", description: "把已生成或上传的语音资源绑定到指定对白。", args: ["sceneId", "blockId", "voiceAssetId"] },
   { name: "generate_tts", description: "请求已配置的 TTS Provider 生成语音；生成后作为 voice 资源回写对白。", args: ["sceneId", "blockId", "voice?", "model?"] },
-  { name: "add_choice", description: "在片段任意位置添加选项组；选项可继续、结束片段、跳到任意选项组并写入一次性记录。", args: ["sceneId", "groupCode?", "prompt?", "options", "index?"] },
+  { name: "add_choice", description: "在片段任意位置添加带唯一名称的选项组；选项可继续、结束片段、跳到任意选项组并写入一次性记录。", args: ["sceneId", "groupName?", "groupCode?", "prompt?", "options", "index?"] },
   { name: "add_free_input", description: "添加自由输入并指定 story/blog/ai 去向。", args: ["sceneId", "variableId", "targets", "index?"] },
   { name: "connect_branch", description: "连接片段结束后的外层主干；不会向片段内部偷偷插入跳转块。", args: ["sourceNodeId", "targetNodeId", "label?", "condition?"] },
   { name: "set_variable", description: "插入变量操作。", args: ["sceneId", "variableId", "operation", "value", "index?"] },
