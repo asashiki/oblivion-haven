@@ -16,13 +16,13 @@ import {
 } from "@xyflow/react";
 import {
   ArrowLeft,
-  ArrowLeftRight,
+  ArrowDown,
+  ArrowUp,
   BookOpen,
-  Bot,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  CircleHelp,
   Copy,
   Download,
   FileAudio,
@@ -36,7 +36,7 @@ import {
   LibraryBig,
   LockKeyhole,
   Maximize2,
-  MoreHorizontal,
+  MessageCircle,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
@@ -48,13 +48,11 @@ import {
   Save,
   Search,
   Send,
-  Settings2,
   Sparkles,
+  TriangleAlert,
   Trash2,
   UploadCloud,
   UserRound,
-  UsersRound,
-  WandSparkles,
   X,
   Undo2,
 } from "lucide-react";
@@ -69,6 +67,12 @@ import {
   projectBackupFileName,
 } from "@/lib/story/exporter";
 import { createDirectorDraft, reviseSceneWithInstruction, type DirectorDraft } from "@/lib/story/director";
+import {
+  choiceGroupCode,
+  choiceGroupDisplayName,
+  isChoiceGroupNameUnique,
+  nextChoiceGroupIdentity,
+} from "@/lib/story/choiceGroups";
 import { WEBGAL_ANIMATION_PRESETS } from "@/lib/story/performancePresets";
 import { prepareWebGalPreview } from "@/lib/webgalPreview";
 import {
@@ -90,6 +94,7 @@ import {
 } from "@/lib/story/figureFraming";
 import { readLocalAssetFile, removeLocalAssetFile, saveLocalAssetFile } from "@/lib/localAssetStore";
 import { routeDisplayPosition, routeStoredPosition } from "@/lib/story/routeLayout";
+import { routeEdgeWouldCross } from "@/lib/story/routeGeometry";
 import type {
   AssetKind,
   RouteEdge,
@@ -98,7 +103,7 @@ import type {
   StoryAsset,
   StoryBlock,
   StoryCharacter,
-  StoryDiagnostic,
+  StoryChapter,
   StoryProject,
   StoryRecord,
   StoryScene,
@@ -112,7 +117,6 @@ type SimpleSection = "story" | "assets" | "preview";
 type Props = {
   project: StoryProject;
   selectedSceneId: string;
-  diagnostics: StoryDiagnostic[];
   savedAt: string;
   canUndo: boolean;
   canRedo: boolean;
@@ -120,16 +124,19 @@ type Props = {
   onChange: (project: StoryProject, label: string, actor?: SnapshotActor) => void;
   onUndo: () => void;
   onRedo: () => void;
-  onAdvanced: (view?: "story" | "map" | "assets" | "preview" | "diagnostics") => void;
 };
 
-type SimpleNodeData = {
+type SimpleRouteNodeData = {
   route: RouteNode;
   scene?: StoryScene;
-  chapter?: string;
   locked: boolean;
   playerView: boolean;
   onPlay: (sceneId: string) => void;
+};
+
+type SimpleChapterNodeData = {
+  chapter: StoryChapter;
+  index: number;
 };
 
 const assetKindLabels: Record<AssetKind, string> = {
@@ -188,13 +195,6 @@ function copyText(value: string) {
   void navigator.clipboard?.writeText(value);
 }
 
-function choiceGroupCode(project: StoryProject, scene: StoryScene, block: Extract<StoryBlock, { type: "choice" }>): string {
-  if (block.groupCode) return block.groupCode;
-  const sceneIndex = Math.max(0, project.scenes.findIndex((item) => item.id === scene.id));
-  const groupIndex = Math.max(0, scene.blocks.filter((item) => item.type === "choice").findIndex((item) => item.id === block.id));
-  return `S${String(sceneIndex + 1).padStart(2, "0")}-Q${String(groupIndex + 1).padStart(2, "0")}`;
-}
-
 function precedingChoice(blocks: StoryBlock[], index: number): Extract<StoryBlock, { type: "choice" }> | undefined {
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
     const candidate = blocks[cursor];
@@ -230,8 +230,8 @@ function useProjectAssetUrls(project: StoryProject): Record<string, string> {
   return assetUrls;
 }
 
-const SimpleRouteNode = memo(function SimpleRouteNode({ data, selected }: NodeProps<Node<SimpleNodeData>>) {
-  const { route, scene, chapter, locked, playerView, onPlay } = data;
+const SimpleRouteNode = memo(function SimpleRouteNode({ data, selected }: NodeProps<Node<SimpleRouteNodeData>>) {
+  const { route, scene, locked, playerView, onPlay } = data;
   return (
     <div
       className={[
@@ -249,14 +249,11 @@ const SimpleRouteNode = memo(function SimpleRouteNode({ data, selected }: NodePr
         className={playerView ? "simple-route-handle--readonly" : undefined}
       />
       <div className="simple-route-node__meta">
-        <span>{chapter || "故事片段"}</span>
+        <span>{route.kind === "start" ? "入口" : route.kind.includes("ending") ? "结局" : "分支片段"}</span>
         {locked ? <LockKeyhole size={12} /> : route.kind === "start" ? <Sparkles size={12} /> : <GitBranch size={12} />}
       </div>
       <strong>{route.title}</strong>
-      <p>{scene?.summary || "点击后写下这一段发生什么。"}</p>
       <footer>
-        <span>{scene?.blocks.filter((block) => block.type === "dialogue" || block.type === "narration").length || 0} 句</span>
-        <span>{scene?.blocks.filter((block) => block.type === "choice").length || 0} 组选项</span>
         {scene && !playerView && (
           <button
             className="simple-route-node__play nodrag nopan"
@@ -281,48 +278,98 @@ const SimpleRouteNode = memo(function SimpleRouteNode({ data, selected }: NodePr
   );
 });
 
-const simpleNodeTypes = { simpleRoute: SimpleRouteNode };
-
-function SceneStats({ scene }: { scene: StoryScene }) {
-  const dialogue = scene.blocks.filter((block) => block.type === "dialogue" || block.type === "narration").length;
-  const choices = scene.blocks.filter((block) => block.type === "choice");
-  const innerLoops = choices.reduce((count, block) => count + (block.type === "choice" ? block.options.filter((option) => option.targetBlockId).length : 0), 0)
-    + scene.blocks.filter((block) => block.type === "jump" && block.targetBlockId).length;
-  const outerExits = new Set(scene.blocks.flatMap((block) => {
-    if (block.type === "choice") return block.options.map((option) => option.targetSceneId).filter(Boolean);
-    if (block.type === "condition") return block.branches.map((branch) => branch.targetSceneId);
-    if (block.type === "jump" && block.targetSceneId) return [block.targetSceneId];
-    return [];
-  })).size;
+const SimpleChapterNode = memo(function SimpleChapterNode({ data }: NodeProps<Node<SimpleChapterNodeData>>) {
   return (
-    <div className="scene-stats">
-      <span><strong>{dialogue}</strong> 句内容</span>
-      <span><strong>{choices.length}</strong> 组选项</span>
-      <span><strong>{innerLoops}</strong> 个片段内循环</span>
-      <span><strong>{outerExits}</strong> 个外部出口</span>
+    <div className="simple-chapter-node">
+      <span>CHAPTER {String(data.index + 1).padStart(2, "0")}</span>
+      <strong>{data.chapter.name}</strong>
     </div>
   );
-}
+});
 
-function DirectorResultCard({ result }: { result: DirectorDraft }) {
+const simpleNodeTypes = { simpleRoute: SimpleRouteNode, simpleChapter: SimpleChapterNode };
+
+function StudioGuideAssistant({
+  project,
+  selectedSceneId,
+  section,
+  onChange,
+}: {
+  project: StoryProject;
+  selectedSceneId: string;
+  section: SimpleSection;
+  onChange: Props["onChange"];
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [messages, setMessages] = useState<Array<{ role: "assistant" | "user"; text: string }>>([
+    { role: "assistant", text: "想写什么？" },
+  ]);
+  const [pending, setPending] = useState<DirectorDraft>();
+  const selectedScene = project.scenes.find((scene) => scene.id === selectedSceneId) || project.scenes[0];
+
+  const answerWithGuidance = () => {
+    if (section === "assets") return "可以帮你整理素材用途和角色绑定。";
+    if (section === "preview") return "可以直接告诉我哪句、哪个动作需要改。";
+    if (!selectedScene?.blocks.length) return "描述地点、角色和要发生的事，我来起草。";
+    return `要修改「${selectedScene.name}」的哪一部分？`;
+  };
+
+  const send = () => {
+    const text = prompt.trim();
+    if (!text || !selectedScene) return;
+    setMessages((items) => [...items, { role: "user", text }]);
+    setPrompt("");
+    if (!/(生成|写|改|调整|润色|增加|添加|换成|让)/.test(text)) {
+      setPending(undefined);
+      setMessages((items) => [...items, { role: "assistant", text: answerWithGuidance() }]);
+      return;
+    }
+    const draft = selectedScene.blocks.length && !/(重新生成|整段重写|从头写)/.test(text)
+      ? reviseSceneWithInstruction(project, selectedScene.id, text)
+      : createDirectorDraft(project, selectedScene.id, text);
+    setPending(draft);
+    setMessages((items) => [...items, {
+      role: "assistant",
+      text: `「${selectedScene.name}」草稿已准备。`,
+    }]);
+  };
+
+  const applyPending = () => {
+    if (!pending || !selectedScene) return;
+    onChange(pending.project, `创作助手修改「${selectedScene.name}」`, "system");
+    setPending(undefined);
+    setMessages((items) => [...items, { role: "assistant", text: "已应用。" }]);
+  };
+
   return (
-    <div className="director-result">
-      <div className="director-result__title"><Check size={15} /><strong>这一段已经生成</strong><span>可直接试玩，也可以撤销</span></div>
-      <div className="director-matches">
-        {result.matches.map((match) => (
-          <span key={`${match.role}-${match.id}`} title={match.reason}>
-            <i>{match.role === "background" ? "景" : match.role === "bgm" ? "乐" : match.role === "character" ? "角" : "表"}</i>
-            {match.label}
-            <b>{Math.round(match.confidence * 100)}%</b>
-          </span>
-        ))}
+    <section className="studio-guide-assistant">
+      <header>
+        <span><MessageCircle size={14} /></span>
+        <div><strong>创作助手</strong></div>
+      </header>
+      <div className="studio-guide-assistant__messages" aria-live="polite">
+        {messages.slice(-5).map((message, index) => <p className={`is-${message.role}`} key={`${message.role}-${index}`}>{message.text}</p>)}
       </div>
-      {result.notes.map((note) => <p key={note}>{note}</p>)}
-    </div>
+      {pending && <div className="studio-guide-assistant__pending"><Sparkles size={13} /><span>当前片段草稿已准备好</span><button onClick={applyPending}>应用草稿</button></div>}
+      <label className="studio-guide-assistant__compose">
+        <textarea
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              send();
+            }
+          }}
+          placeholder="例如：写一段爱丽丝担心主人晚归的对白，并给三个选项"
+        />
+        <button onClick={send} disabled={!prompt.trim()} aria-label="发送给创作助手"><Send size={15} /></button>
+      </label>
+    </section>
   );
 }
 
-type StoryWorkspaceProps = Pick<Props, "project" | "selectedSceneId" | "onSelectScene" | "onChange" | "onAdvanced"> & {
+type StoryWorkspaceProps = Pick<Props, "project" | "selectedSceneId" | "onSelectScene" | "onChange"> & {
   onCreate: (kind: "scene" | "chapter") => void;
   onDeleteScene: (sceneId: string) => void;
   onOpenPreview: () => void;
@@ -333,7 +380,6 @@ function StoryWorkspace({
   selectedSceneId,
   onSelectScene,
   onChange,
-  onAdvanced,
   onCreate,
   onDeleteScene,
   onOpenPreview,
@@ -342,19 +388,9 @@ function StoryWorkspace({
   const [chapterId, setChapterId] = useState("all");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [recordDraft, setRecordDraft] = useState("");
-  const [brief, setBrief] = useState("");
-  const [directorResult, setDirectorResult] = useState<DirectorDraft>();
-  const briefSceneId = useRef<string | undefined>(undefined);
+  const [mapNotice, setMapNotice] = useState("");
   const storyPane = useResizablePane("gal-story-inspector-width", 470, 360, 720);
   const selectedScene = project.scenes.find((scene) => scene.id === selectedSceneId) || project.scenes[0];
-  const selectedRoute = project.routeMap.nodes.find((node) => node.sceneId === selectedScene?.id);
-
-  useEffect(() => {
-    if (briefSceneId.current === selectedScene?.id) return;
-    briefSceneId.current = selectedScene?.id;
-    setBrief(selectedScene?.aiContext || selectedScene?.summary || "");
-    setDirectorResult(undefined);
-  }, [selectedScene]);
 
   const chapterSceneIds = useMemo(() => {
     if (chapterId === "all") return undefined;
@@ -367,30 +403,62 @@ function StoryWorkspace({
     return Boolean(route.sceneId && chapterSceneIds.has(route.sceneId));
   }), [chapterSceneIds, playerView, project.routeMap.nodes]);
   const visibleRouteIds = useMemo(() => new Set(visibleRoutes.map((route) => route.id)), [visibleRoutes]);
+  const visibleChapters = useMemo(() => project.chapters.filter((chapter) => chapterId === "all" || chapter.id === chapterId), [chapterId, project.chapters]);
 
-  const projectNodes = useMemo<Node<SimpleNodeData>[]>(() => visibleRoutes.map((route) => {
-    const scene = project.scenes.find((item) => item.id === route.sceneId);
-    const chapter = project.chapters.find((item) => item.id === scene?.chapterId);
-    return {
-      id: route.id,
-      type: "simpleRoute",
-      position: routeDisplayPosition(route, project.routeMap.layoutDirection),
-      selected: route.sceneId === selectedScene?.id,
-      deletable: false,
-      ariaLabel: `${route.title}，${scene?.summary || "尚未生成"}`,
-      data: {
-        route,
-        scene,
-        chapter: chapter?.name,
-        playerView,
-        locked: playerView && Boolean(route.unlockCondition),
-        onPlay: (sceneId: string) => {
-          onSelectScene(sceneId);
-          onOpenPreview();
-        },
-      },
-    };
-  }), [onOpenPreview, onSelectScene, playerView, project.chapters, project.routeMap.layoutDirection, project.scenes, selectedScene?.id, visibleRoutes]);
+  const projectNodes = useMemo<Node<SimpleRouteNodeData | SimpleChapterNodeData>[]>(() => {
+    const result: Node<SimpleRouteNodeData | SimpleChapterNodeData>[] = [];
+    let chapterY = 36;
+    visibleChapters.forEach((chapter) => {
+      const chapterRoutes = visibleRoutes.filter((route) => route.sceneId && chapter.sceneIds.includes(route.sceneId));
+      const displayPositions = chapterRoutes.map((route) => routeDisplayPosition(route, project.routeMap.layoutDirection));
+      const minX = Math.min(0, ...displayPositions.map((position) => position.x));
+      const maxX = Math.max(320, ...displayPositions.map((position) => position.x));
+      const minY = Math.min(0, ...displayPositions.map((position) => position.y));
+      const maxY = Math.max(120, ...displayPositions.map((position) => position.y));
+      const width = Math.max(720, maxX - minX + 340);
+      const height = Math.max(300, maxY - minY + 230);
+      const parentId = `chapter:${chapter.id}`;
+      result.push({
+        id: parentId,
+        type: "simpleChapter",
+        position: { x: 48, y: chapterY },
+        data: { chapter, index: project.chapters.findIndex((item) => item.id === chapter.id) },
+        draggable: false,
+        selectable: false,
+        deletable: false,
+        style: { width, height },
+        zIndex: 0,
+      });
+      chapterRoutes.forEach((route) => {
+        const scene = project.scenes.find((item) => item.id === route.sceneId);
+        const position = routeDisplayPosition(route, project.routeMap.layoutDirection);
+        result.push({
+          id: route.id,
+          type: "simpleRoute",
+          parentId,
+          extent: "parent",
+          position: { x: position.x - minX + 44, y: position.y - minY + 90 },
+          selected: route.sceneId === selectedScene?.id,
+          deletable: false,
+          draggable: false,
+          ariaLabel: route.title,
+          zIndex: 2,
+          data: {
+            route,
+            scene,
+            playerView,
+            locked: playerView && Boolean(route.unlockCondition),
+            onPlay: (sceneId: string) => {
+              onSelectScene(sceneId);
+              onOpenPreview();
+            },
+          },
+        });
+      });
+      chapterY += height + 72;
+    });
+    return result;
+  }, [onOpenPreview, onSelectScene, playerView, project.chapters, project.routeMap.layoutDirection, project.scenes, selectedScene?.id, visibleChapters, visibleRoutes]);
   const [nodes, setNodes, onNodesChange] = useNodesState(projectNodes);
 
   useEffect(() => {
@@ -399,42 +467,45 @@ function StoryWorkspace({
 
   const edges = useMemo<Edge[]>(() => project.routeMap.edges
     .filter((edge) => visibleRouteIds.has(edge.source) && visibleRouteIds.has(edge.target) && (!playerView || !edge.hiddenFromPlayer))
-    .map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      label: edge.label || edge.condition,
-      selected: edge.id === selectedEdgeId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: edge.id === selectedEdgeId ? "#6e5fca" : "#a89fd6" },
-      style: {
-        stroke: edge.id === selectedEdgeId ? "#6e5fca" : edge.condition ? "#ba91ba" : "#afa8cf",
-        strokeWidth: edge.id === selectedEdgeId ? 3 : 1.8,
-        strokeDasharray: edge.condition ? "5 4" : undefined,
-      },
-      labelStyle: { fill: "#756e88", fontSize: 10, fontWeight: 600 },
-      labelBgStyle: { fill: "#fffdf9", fillOpacity: 0.96 },
-      labelBgPadding: [5, 3] as [number, number],
-      labelBgBorderRadius: 8,
-    })), [playerView, project.routeMap.edges, selectedEdgeId, visibleRouteIds]);
+    .map((edge) => {
+      const reciprocal = project.routeMap.edges.some((candidate) => candidate.source === edge.target && candidate.target === edge.source);
+      const selected = edge.id === selectedEdgeId;
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: reciprocal ? "smoothstep" : "straight",
+        pathOptions: reciprocal ? {
+          offset: edge.source.localeCompare(edge.target) < 0 ? 34 : 68,
+          stepPosition: edge.source.localeCompare(edge.target) < 0 ? 0.35 : 0.65,
+        } : undefined,
+        label: edge.label || edge.condition,
+        selected,
+        markerEnd: { type: MarkerType.ArrowClosed, color: selected ? "#6e5fca" : "#a89fd6" },
+        style: {
+          stroke: selected ? "#6e5fca" : edge.condition ? "#ba91ba" : "#afa8cf",
+          strokeWidth: selected ? 3 : 1.8,
+          strokeDasharray: edge.condition ? "5 4" : undefined,
+        },
+        labelStyle: { fill: "#756e88", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "#fffdf9", fillOpacity: 0.96 },
+        labelBgPadding: [5, 3] as [number, number],
+        labelBgBorderRadius: 8,
+      };
+    }), [playerView, project.routeMap.edges, selectedEdgeId, visibleRouteIds]);
   const selectedEdge = project.routeMap.edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeSource = project.routeMap.nodes.find((node) => node.id === selectedEdge?.source);
   const selectedEdgeTarget = project.routeMap.nodes.find((node) => node.id === selectedEdge?.target);
-
-  const updateNodePosition = (routeId: string, x: number, y: number) => {
-    const position = routeStoredPosition({ x: Math.round(x), y: Math.round(y) }, project.routeMap.layoutDirection);
-    onChange({
-      ...project,
-      routeMap: {
-        ...project.routeMap,
-        nodes: project.routeMap.nodes.map((node) => node.id === routeId ? { ...node, ...position } : node),
-      },
-    }, "移动剧情片段");
-  };
 
   const connect = (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
     if (project.routeMap.edges.some((edge) => edge.source === connection.source && edge.target === connection.target)) return;
     const edge: RouteEdge = { id: createId("edge"), source: connection.source, target: connection.target, label: "继续" };
+    if (routeEdgeWouldCross(project, edge)) {
+      setMapNotice("这条连接会与现有主干线交叉，因此没有创建。调整片段位置后再连接即可。");
+      return;
+    }
+    setMapNotice("");
     onChange(linkRouteEdge(project, edge), "连接剧情片段");
     setSelectedEdgeId(edge.id);
   };
@@ -462,13 +533,6 @@ function StoryWorkspace({
     }, "修改分支名称");
   };
 
-  const generate = () => {
-    if (!selectedScene) return;
-    const result = createDirectorDraft(project, selectedScene.id, brief);
-    onChange(result.project, `本地规则生成「${selectedScene.name}」`, "system");
-    setDirectorResult(result);
-  };
-
   const updateScene = (patch: Partial<StoryScene>, label: string) => {
     if (!selectedScene) return;
     onChange({
@@ -491,7 +555,12 @@ function StoryWorkspace({
   const records = project.records || [];
   const allChoiceGroups = project.scenes.flatMap((scene) => scene.blocks
     .filter((block): block is Extract<StoryBlock, { type: "choice" }> => block.type === "choice")
-    .map((block) => ({ scene, block, code: choiceGroupCode(project, scene, block) })));
+    .map((block) => ({
+      scene,
+      block,
+      code: choiceGroupCode(project, scene, block),
+      name: choiceGroupDisplayName(project, scene, block),
+    })));
   const selectedChoiceGroups = selectedScene?.blocks.filter((block): block is Extract<StoryBlock, { type: "choice" }> => block.type === "choice") || [];
 
   const updateChoiceGroup = (blockId: string, updater: (block: Extract<StoryBlock, { type: "choice" }>) => Extract<StoryBlock, { type: "choice" }>, label: string) => {
@@ -503,10 +572,11 @@ function StoryWorkspace({
 
   const addChoiceGroup = () => {
     if (!selectedScene) return;
+    const identity = nextChoiceGroupIdentity(project, selectedScene);
     const group: Extract<StoryBlock, { type: "choice" }> = {
       id: createId("choice"),
       type: "choice",
-      groupCode: `S${String(project.scenes.findIndex((item) => item.id === selectedScene.id) + 1).padStart(2, "0")}-Q${String(selectedChoiceGroups.length + 1).padStart(2, "0")}`,
+      ...identity,
       prompt: "玩家要怎么回应？",
       options: [
         { id: createId("option"), label: "继续听下去" },
@@ -572,7 +642,7 @@ function StoryWorkspace({
         targetBlockId: undefined,
         targetRouteNodeId: undefined,
         targetChoiceGroupId: value.startsWith("group:") ? value.slice(6) : undefined,
-        targetSceneId: value.startsWith("scene:") ? value.slice(6) : undefined,
+        targetSceneId: undefined,
         endScene: value === "end" || undefined,
       }),
     }), "修改选项去向");
@@ -599,14 +669,10 @@ function StoryWorkspace({
   return (
     <div className="simple-story">
       <header className="simple-page-heading">
-        <div>
-          <span className="simple-kicker">STORY MAP · 一小段一小段地写</span>
-          <h1>从地图上直接创作故事</h1>
-          <p>外层只管章节和剧情片段；选项、循环与演出留在每个片段内部。</p>
-        </div>
+        <h1>故事</h1>
         <div className="simple-heading-actions">
           <button className="soft-button" onClick={() => onCreate("chapter")}><LibraryBig size={15} /> 新章节</button>
-          <button className="simple-primary" onClick={() => onCreate("scene")}><Plus size={16} /> 新增剧情片段</button>
+          <button className="simple-primary" onClick={() => onCreate("scene")}><Plus size={16} /> 新片段</button>
         </div>
       </header>
 
@@ -619,29 +685,22 @@ function StoryWorkspace({
             </button>
           ))}
         </div>
-        <div className="simple-view-toggle simple-view-toggle--hint">
-          <CircleHelp size={15} />
-          <strong>外层只画片段结束后的主干</strong>
-          <span>片段内的多组选项、短反应和循环统一在右侧编辑，不会把地图拆成一地小节点。</span>
-        </div>
       </div>
 
       <div className="simple-story-layout" style={{ gridTemplateColumns: `minmax(520px, 1fr) 8px ${storyPane.width}px` }}>
         <section className="simple-map-panel">
-          <div className="simple-map-chapter-card">
-            <span>{chapterId === "all" ? "全路线总览" : project.chapters.find((chapter) => chapter.id === chapterId)?.name}</span>
-            <strong>剧情向下推进，分支向左右展开</strong>
-          </div>
           <ReactFlow
             nodes={nodes}
             edges={edges}
             nodeTypes={simpleNodeTypes}
             onNodesChange={onNodesChange}
             defaultViewport={{ x: 0, y: 0, zoom: 0.92 }}
+            fitView
+            fitViewOptions={{ padding: 0.08, minZoom: 0.35, maxZoom: 1 }}
             minZoom={0.35}
             maxZoom={1.5}
             nodeDragThreshold={1}
-            nodesDraggable={!playerView}
+            nodesDraggable={false}
             nodesConnectable={!playerView}
             elementsSelectable
             edgesFocusable={!playerView}
@@ -653,11 +712,14 @@ function StoryWorkspace({
             proOptions={{ hideAttribution: true }}
             onConnect={connect}
             onNodeClick={(_, node) => {
+              if (node.id.startsWith("chapter:")) {
+                setChapterId(node.id.slice("chapter:".length));
+                return;
+              }
               const sceneId = project.routeMap.nodes.find((route) => route.id === node.id)?.sceneId;
               if (sceneId) onSelectScene(sceneId);
               setSelectedEdgeId(undefined);
             }}
-            onNodeDragStop={(_, node) => updateNodePosition(node.id, node.position.x, node.position.y)}
             onEdgeClick={(event, edge) => {
               event.stopPropagation();
               setSelectedEdgeId(edge.id);
@@ -668,11 +730,7 @@ function StoryWorkspace({
             <Background variant={BackgroundVariant.Dots} gap={26} size={1.2} color="#ded9ea" />
             <Controls showInteractive={false} position="bottom-left" />
           </ReactFlow>
-          <div className="simple-map-legend">
-            <span><i className="open" /> 主干剧情片段</span>
-            <span><GitBranch size={13} /> 点击细线编辑记录条件</span>
-            <span><ArrowLeftRight size={13} /> 线条可交叉；片段内循环不画在这里</span>
-          </div>
+          {mapNotice && <div className="simple-map-notice" role="status"><GitBranch size={13} />{mapNotice}<button onClick={() => setMapNotice("")}><X size={12} /></button></div>}
         </section>
 
         <SplitGrip onPointerDown={(event) => storyPane.startResize(event, "right")} label="拖动调整地图与片段编辑区宽度" />
@@ -702,10 +760,8 @@ function StoryWorkspace({
                   >
                     <Trash2 size={16} />
                   </button>
-                  <button className="icon-soft" onClick={() => onAdvanced("story")} title="打开细节编辑"><MoreHorizontal size={18} /></button>
                 </div>
               </header>
-              <SceneStats scene={selectedScene} />
               {selectedEdge ? (
                 <section className="route-edge-inspector">
                   <header><GitBranch size={16} /><div><span>片段结束后的主干</span><strong>{selectedEdgeSource?.title} → {selectedEdgeTarget?.title}</strong></div></header>
@@ -730,20 +786,18 @@ function StoryWorkspace({
                           updateSelectedEdgeRecords({ recordIds: event.target.checked ? [...current, record.id] : current.filter((id) => id !== record.id) });
                         }} />{record.name}</label>
                       ))}
-                      {!records.length && <p>还没有一次性记录。先回到片段，给某个选项添加记录。</p>}
+                      {!records.length && <p>暂无记录</p>}
                     </div>
                   )}
                   {selectedEdge.recordCondition?.mode === "at-least" && (
                     <label>至少获得<input type="number" min={1} max={Math.max(1, selectedEdge.recordCondition.recordIds.length)} value={selectedEdge.recordCondition.minimum || 1} onChange={(event) => updateSelectedEdgeRecords({ minimum: Number(event.target.value) })} /></label>
                   )}
-                  <p className="route-edge-note">单个记录就是只勾选一项；多项全有与“至少 N 项”都直接编译到 WebGAL 的片段出口。</p>
                   <button className="danger-button" onClick={() => removeEdge(selectedEdge.id)}><Trash2 size={14} /> 删除这条细线</button>
                 </section>
               ) : (
                 <>
               <section className="choice-group-workspace">
-                <header><div><span>片段内部 · 按游戏推进顺序</span><strong>选项组</strong></div><button onClick={addChoiceGroup}><Plus size={13} /> 添加选项组</button></header>
-                <p>选项可以出现在片段中间；跳到本段或别段的任意选项组、结束片段，或者只影响下一句后继续。</p>
+                <header><strong>选项</strong><button onClick={addChoiceGroup}><Plus size={13} /> 添加</button></header>
                 <div className="story-record-strip">
                   <span>一次性记录</span>
                   {records.map((record) => <button key={record.id} onClick={() => copyText(record.name)} title="点击复制记录名"><Copy size={11} />{record.name}</button>)}
@@ -753,9 +807,30 @@ function StoryWorkspace({
                   </span>
                 </div>
                 <div className="choice-group-list">
-                  {selectedChoiceGroups.map((group, groupIndex) => (
+                  {selectedChoiceGroups.map((group) => (
                     <article className="choice-group-card" key={group.id}>
-                      <header><span>{choiceGroupCode(project, selectedScene, group)}</span><input value={group.prompt || ""} onChange={(event) => updateChoiceGroup(group.id, (block) => ({ ...block, prompt: event.target.value }), "修改选项组提示")} placeholder="选项出现时的提示" /><button onClick={() => deleteChoiceGroup(group.id)}><Trash2 size={12} /></button></header>
+                      <header>
+                        <span>{choiceGroupCode(project, selectedScene, group)}</span>
+                        <input
+                          key={`${group.id}:${group.groupName}`}
+                          defaultValue={choiceGroupDisplayName(project, selectedScene, group)}
+                          onInput={(event) => event.currentTarget.setCustomValidity("")}
+                          onBlur={(event) => {
+                            const groupName = event.currentTarget.value.trim();
+                            if (!groupName || !isChoiceGroupNameUnique(project, group.id, groupName)) {
+                              event.currentTarget.setCustomValidity(groupName ? "选项组名称不能重复" : "请填写选项组名称");
+                              event.currentTarget.reportValidity();
+                              event.currentTarget.value = choiceGroupDisplayName(project, selectedScene, group);
+                              return;
+                            }
+                            if (groupName !== group.groupName) updateChoiceGroup(group.id, (block) => ({ ...block, groupName }), "修改选项组名称");
+                          }}
+                          aria-label={`${choiceGroupCode(project, selectedScene, group)} 名称`}
+                          placeholder="例如：是否相信爱丽丝"
+                        />
+                        <button onClick={() => deleteChoiceGroup(group.id)}><Trash2 size={12} /></button>
+                      </header>
+                      <label className="choice-group-prompt"><span>画面提示</span><input value={group.prompt || ""} onChange={(event) => updateChoiceGroup(group.id, (block) => ({ ...block, prompt: event.target.value }), "修改选项组提示")} placeholder="玩家要怎么回应？" /></label>
                       <label className="choice-group-placement">
                         <span>出现位置</span>
                         <select
@@ -780,18 +855,15 @@ function StoryWorkspace({
                         {group.options.map((option, optionIndex) => {
                           const destination = option.targetChoiceGroupId
                             ? `group:${option.targetChoiceGroupId}`
-                            : option.targetSceneId
-                              ? `scene:${option.targetSceneId}`
-                              : option.endScene ? "end" : "continue";
+                            : option.endScene ? "end" : "continue";
                           return (
                             <section className="choice-option-row" key={option.id}>
                               <b>{optionIndex + 1}</b>
                               <input value={option.label} onChange={(event) => updateChoiceGroup(group.id, (block) => ({ ...block, options: block.options.map((item) => item.id === option.id ? { ...item, label: event.target.value } : item) }), "修改选项文字")} aria-label={`${choiceGroupCode(project, selectedScene, group)} 选项 ${optionIndex + 1}`} />
                               <select value={destination} onChange={(event) => setOptionDestination(group.id, option.id, event.target.value)}>
-                                <option value="continue">继续播放本片段（可影响下一句）</option>
+                                <option value="continue">继续本段（只影响下一句）</option>
                                 <option value="end">结束本片段，按地图细线继续</option>
-                                {allChoiceGroups.map((item) => <option key={item.block.id} value={`group:${item.block.id}`}>跳到 {item.code} · {item.scene.name}{item.block.id === group.id ? "（本组选项循环）" : ""}</option>)}
-                                {project.scenes.map((scene) => <option key={scene.id} value={`scene:${scene.id}`}>兼容旧稿：跳到片段开头 · {scene.name}</option>)}
+                                {allChoiceGroups.map((item) => <option key={item.block.id} value={`group:${item.block.id}`}>跳到「{item.name}」{item.block.id === group.id ? "（循环本组）" : ""}</option>)}
                               </select>
                               <select value={option.recordId || ""} onChange={(event) => updateChoiceGroup(group.id, (block) => ({ ...block, options: block.options.map((item) => item.id === option.id ? { ...item, recordId: event.target.value || undefined } : item) }), "修改选项一次性记录")}>
                                 <option value="">不写入记录</option>
@@ -803,54 +875,12 @@ function StoryWorkspace({
                         })}
                       </div>
                       <button className="choice-add-option" onClick={() => updateChoiceGroup(group.id, (block) => ({ ...block, options: [...block.options, { id: createId("option"), label: `新选项 ${block.options.length + 1}` }] }), "添加选项")}><Plus size={12} /> 添加一个选项</button>
-                      <small>第 {groupIndex + 1} 组选项 · 选择“继续”时可在试玩修订页给下一句添加不同反应，然后自动汇合。</small>
                     </article>
                   ))}
-                  {!selectedChoiceGroups.length && <button className="choice-group-empty" onClick={addChoiceGroup}><GitBranch size={20} /><strong>这个片段还没有选项组</strong><span>可以在开头、中间或结尾添加，不会强制收尾。</span></button>}
+                  {!selectedChoiceGroups.length && <button className="choice-group-empty" onClick={addChoiceGroup}><GitBranch size={20} /><strong>添加第一个选项</strong></button>}
                 </div>
               </section>
-              <div className="scene-panel-tabs">
-                <button className="active"><WandSparkles size={14} /> 用一句话创作</button>
-                <button onClick={onOpenPreview}><Gamepad2 size={14} /> 用 WebGAL 试玩本段</button>
-              </div>
-              <div className="director-editor">
-                <div className="director-promise">
-                  <Sparkles size={17} />
-                  <p><strong>真实 AI 尚未接入。</strong>这里先用透明、可回退的本地规则从现有素材中生成验收草稿；没有的资源会明确留空。</p>
-                </div>
-                <label>
-                  <span>这一小段大概发生什么？</span>
-                  <textarea
-                    value={brief}
-                    onChange={(event) => setBrief(event.target.value)}
-                    placeholder="例如：晚上的茶室，爱丽丝发现主人回来得很晚。她有一点担心，但不想直接责备。最后问主人今天去了哪里，并给出几个选项。"
-                  />
-                </label>
-                <div className="director-hints">
-                  <span>可以只写概括</span>
-                  <span>明确台词和选项会原样保留</span>
-                  <span>当前只补有限的基础演出</span>
-                </div>
-                <button className="director-generate" onClick={generate} disabled={!brief.trim()}>
-                  <WandSparkles size={17} />
-                  <span><strong>生成本地规则草稿</strong><small>非 AI · 只改当前片段 · 可撤销</small></span>
-                  <ChevronRight size={18} />
-                </button>
-                {directorResult && <DirectorResultCard result={directorResult} />}
-              </div>
-              <div className="scene-exits">
-                <div><strong>这段之后会去哪里</strong><span>外层路线只记录片段出口</span></div>
-                {project.routeMap.edges.filter((edge) => edge.source === selectedRoute?.id).map((edge) => (
-                  <span key={edge.id}>
-                    <GitBranch size={13} />
-                    {edge.label || edge.condition || "继续"}
-                    <ChevronRight size={13} />
-                    {project.routeMap.nodes.find((node) => node.id === edge.target)?.title}
-                    <button onClick={() => removeEdge(edge.id)} title="删除这条分支线"><Trash2 size={12} /></button>
-                  </span>
-                ))}
-                {!project.routeMap.edges.some((edge) => edge.source === selectedRoute?.id) && <p>还没有外部出口。你可以从地图节点底部拖线连接下一段。</p>}
-              </div>
+              <button className="scene-preview-shortcut" onClick={onOpenPreview}><Gamepad2 size={14} /> 打开修订 <ChevronRight size={14} /></button>
                 </>
               )}
             </>
@@ -1003,7 +1033,7 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
   const [uploadIntent, setUploadIntent] = useState("");
   const [assistantPrompt, setAssistantPrompt] = useState("");
   const [assistantMessages, setAssistantMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([
-    { role: "assistant", text: "可以先不上传文件。告诉我你准备放进来的素材、命名习惯和用途，我会先给出整理方案；点名已有素材时，确定性修改会写入操作历史并可撤销。" },
+    { role: "assistant", text: "想怎么整理素材？" },
   ]);
   const [packageSummary, setPackageSummary] = useState<{
     name: string;
@@ -1414,8 +1444,6 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
     }]);
   };
 
-  const semanticCount = project.assets.filter((asset) => asset.metadata?.description).length;
-  const availableCount = project.assets.filter((asset) => !asset.missing).length;
   const kindFilters: Array<"all" | AssetKind> = ["all", "background", "figure", "expression", "bgm", "voice", "sfx", "video", "animation", "ui"];
   const selectedAssetUrl = resolveRegisteredAssetUrl(selectedAsset, assetUrls);
   const selectedExpressionBinding = project.characters
@@ -1432,11 +1460,7 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
   return (
     <div className="simple-assets">
       <header className="simple-page-heading">
-        <div>
-          <span className="simple-kicker">RESOURCE LIBRARY · WebGAL 原生资源</span>
-          <h1>管理剧情素材</h1>
-          <p>可上传普通素材，也可整包导入立绘 Skill 的 deliverables ZIP；系统会读取 manifest，而不是靠文件名猜嘴型和眨眼。</p>
-        </div>
+        <h1>素材</h1>
         <div className="simple-heading-actions">
           <button className="soft-button" onClick={() => setShowCharacter(true)}><UserRound size={15} /> 新角色</button>
           <button className="simple-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}><UploadCloud size={16} /> {uploading ? "正在整理…" : "上传素材"}</button>
@@ -1446,7 +1470,7 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
 
       <section className="asset-assistant">
         <header>
-          <div><span><Sparkles size={15} /> 素材助理</span><strong>没有上传文件也可以先聊怎么整理</strong><p>当前部署未绑定模型 Provider；对话规划可直接使用，点名已有素材时执行透明的确定性整理，每次都可撤销。</p></div>
+          <div><span><Sparkles size={15} /> 素材助理</span></div>
           <div><button className="soft-button" onClick={onUndo} disabled={!canUndo}><Undo2 size={14} /> 撤销本次整理</button><button className="simple-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}><UploadCloud size={15} /> 上传文件 / ZIP</button></div>
         </header>
         <div className="asset-assistant__messages">
@@ -1456,7 +1480,7 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
           <textarea value={assistantPrompt} onChange={(event) => setAssistantPrompt(event.target.value)} onKeyDown={(event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") runAssetAssistant();
           }} placeholder="例如：把“爱丽丝 标准姿势 normal”作为默认日常立绘，Q 版只用于搞笑；以后上传的茶室背景按白天/夜晚分组。" rows={3} />
-          <button onClick={runAssetAssistant} disabled={!assistantPrompt.trim()}><Send size={15} /><span>提交整理要求<small>Ctrl / ⌘ + Enter</small></span></button>
+          <button onClick={runAssetAssistant} disabled={!assistantPrompt.trim()}><Send size={15} /> 发送</button>
         </div>
       </section>
 
@@ -1476,20 +1500,13 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
         </section>
       )}
 
-      <div className="asset-library-summary">
-        <span><FolderHeart size={15} /><strong>{availableCount}</strong> 个可用素材</span>
-        <span><Sparkles size={15} /><strong>{semanticCount}</strong> 个已填写使用说明</span>
-        <span><UsersRound size={15} /><strong>{project.characters.length}</strong> 个角色档案</span>
-        {!project.assets.some((asset) => asset.kind === "bgm") && <span className="is-empty"><FileAudio size={15} /> BGM 为空，不会自动补假音乐</span>}
-      </div>
-
       <details className="builtin-performance-library">
-        <summary><Film size={14} /><strong>内置 WebGAL 演出库</strong><span>{WEBGAL_ANIMATION_PRESETS.length} 个默认效果，AI 可直接调用，不需要你上传</span><ChevronDown size={14} /></summary>
+        <summary><Film size={14} /><strong>演出效果</strong><ChevronDown size={14} /></summary>
         <div>{WEBGAL_ANIMATION_PRESETS.map((preset) => <button key={preset.name} onClick={() => copyText(preset.name)} title="点击复制效果名"><Copy size={11} /><span>{preset.label}</span><small>{preset.category} · {preset.durationMs}ms</small></button>)}</div>
       </details>
 
       <section className="character-library-strip">
-        <div className="character-library-title"><span>角色与表情组</span><small>ZIP 按 webgal-manifest.json 建立关系；普通图片才使用名称辅助归类</small></div>
+        <div className="character-library-title"><span>角色与表情</span></div>
         <div>
           {project.characters.map((character) => (
             <article key={character.id} style={{ "--character-color": character.color } as React.CSSProperties}>
@@ -1530,7 +1547,6 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
                 >
                   {!url && (["bgm", "voice", "sfx"].includes(asset.kind) ? <FileAudio size={24} /> : asset.kind === "video" ? <Film size={24} /> : <ImageIcon size={24} />)}
                   <span>{assetKindLabels[asset.kind]}</span>
-                  {asset.metadata?.semanticReady && <b><Check size={11} /> 说明完整</b>}
                 </div>
                 <div className="semantic-asset-content">
                   <strong className="copyable-asset-name" role="button" tabIndex={0} title="点击复制素材名" onClick={(event) => { event.stopPropagation(); copyText(asset.name); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); copyText(asset.name); } }}>{asset.name}<Copy size={11} /></strong>
@@ -1598,7 +1614,6 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
                 <span className={selectedExpressionBinding.expression.webgalAnimation.blink === "dynamic" ? "is-on" : ""}>
                   {selectedExpressionBinding.expression.webgalAnimation.blink === "dynamic" ? "随机自动眨眼" : selectedExpressionBinding.expression.webgalAnimation.blink === "fixed-closed" ? "固定闭眼（不眨眼）" : "静态眼睛"}
                 </span>
-                <small>对白会自动带 figureId；有语音时按音量驱动，没有语音时由 WebGAL 模拟嘴型。</small>
               </div>
             )}
             <label>显示名称<input value={assetDraft.name} onChange={(event) => setAssetDraft({ ...assetDraft, name: event.target.value })} /></label>
@@ -1635,19 +1650,11 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
                     作为角色默认立绘
                   </label>
                 </div>
-                <div className="figure-framing-summary">
-                  <strong>默认演出会被生成器直接继承</strong>
-                  <p>上面的画面就是该素材第一次入场时的默认构图；片段里仍可单独覆盖，不必手写坐标。</p>
-                  <span>{assetDraft.figurePosition === "left" ? "左侧" : assetDraft.figurePosition === "center" ? "中央" : "右侧"} · {FIGURE_SHOT_LABELS[normalizeFigureShot(assetDraft.figureShot)]} · {assetDraft.figureScale.toFixed(2)}×</span>
-                </div>
+                <div className="figure-framing-summary"><span>{assetDraft.figurePosition === "left" ? "左侧" : assetDraft.figurePosition === "center" ? "中央" : "右侧"} · {FIGURE_SHOT_LABELS[normalizeFigureShot(assetDraft.figureShot)]} · {assetDraft.figureScale.toFixed(2)}×</span></div>
               </>
             )}
             <label>标签<input value={assetDraft.tags} onChange={(event) => setAssetDraft({ ...assetDraft, tags: event.target.value })} placeholder="夜晚, 茶室, 安静, 轻微担心" /></label>
             <label>别名<input value={assetDraft.aliases} onChange={(event) => setAssetDraft({ ...assetDraft, aliases: event.target.value })} /></label>
-            <div className="asset-ai-reading">
-              <Bot size={17} />
-              <p><strong>本地规则与未来 AI 会同时读取</strong>名称、说明、推荐用途、标签和角色档案；匹配不确定时应提示，不会编造素材。</p>
-            </div>
             <div className="asset-inspector-actions">
               <button className="asset-delete" onClick={deleteAsset}><Trash2 size={14} /> 移除</button>
               <button className="simple-primary inspector-save" onClick={saveAsset}><Check size={15} /> 保存素材设置</button>
@@ -1672,7 +1679,7 @@ function SimpleAssetWorkspace({ project, onChange, onUndo, canUndo }: AssetWorks
   );
 }
 
-type PreviewWorkspaceProps = Pick<Props, "project" | "selectedSceneId" | "onSelectScene" | "onChange" | "onAdvanced"> & {
+type PreviewWorkspaceProps = Pick<Props, "project" | "selectedSceneId" | "onSelectScene" | "onChange"> & {
   onExitPreview: () => void;
 };
 
@@ -1691,6 +1698,35 @@ const stageActionLabels: Record<Extract<StoryBlock, { type: "stage" }>["action"]
   wait: "等待",
 };
 
+type InsertBlockKind = "dialogue" | "narration" | "choice" | "background" | "figure" | "bgm" | "sfx" | "wait" | "animation";
+
+function BlockInsertMenu({ onInsert, canDialogue }: { onInsert: (kind: InsertBlockKind) => void; canDialogue: boolean }) {
+  const [open, setOpen] = useState(false);
+  const insert = (kind: InsertBlockKind) => {
+    onInsert(kind);
+    setOpen(false);
+  };
+  return (
+    <div className={`block-insert ${open ? "is-open" : ""}`}>
+      <button className="block-insert__trigger" onClick={() => setOpen((value) => !value)} aria-label="在这里插入内容"><Plus size={13} /></button>
+      {open && (
+        <div className="block-insert__menu">
+          <button onClick={() => insert("dialogue")} disabled={!canDialogue}>对白</button>
+          <button onClick={() => insert("narration")}>旁白</button>
+          <button onClick={() => insert("choice")}>选项</button>
+          <i />
+          <button onClick={() => insert("background")}>背景</button>
+          <button onClick={() => insert("figure")}>角色</button>
+          <button onClick={() => insert("bgm")}>BGM</button>
+          <button onClick={() => insert("sfx")}>音效</button>
+          <button onClick={() => insert("animation")}>画面效果</button>
+          <button onClick={() => insert("wait")}>等待</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PreviewBlockEditor({
   block,
   index,
@@ -1699,8 +1735,14 @@ function PreviewBlockEditor({
   assetUrls,
   backgroundUrl,
   onCommit,
+  onReplayFromGroup,
   onGenerateVoice,
+  onReplayFromBlock,
+  onMove,
+  onDelete,
+  total,
   generatingVoice,
+  dirty,
 }: {
   block: StoryBlock;
   index: number;
@@ -1709,8 +1751,14 @@ function PreviewBlockEditor({
   assetUrls: Record<string, string>;
   backgroundUrl?: string;
   onCommit: (block: StoryBlock) => void;
+  onReplayFromGroup?: (blockId: string) => void;
   onGenerateVoice?: (block: Extract<StoryBlock, { type: "dialogue" }>) => void;
+  onReplayFromBlock?: (blockId: string) => void;
+  onMove: (direction: -1 | 1) => void;
+  onDelete: () => void;
+  total: number;
   generatingVoice?: boolean;
+  dirty?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [reactionOptionId, setReactionOptionId] = useState<string>("");
@@ -1722,6 +1770,11 @@ function PreviewBlockEditor({
   const asset = block.type === "stage" && block.assetId
     ? project.assets.find((item) => item.id === block.assetId)
     : undefined;
+  const stageExpression = block.type === "stage" && character
+    ? character.expressions.find((item) => item.id === (block.expressionId || character.defaultExpressionId))
+    : undefined;
+  const stageFigureAsset = project.assets.find((item) => item.id === stageExpression?.assetId);
+  const stageFigureUrl = resolveRegisteredAssetUrl(stageFigureAsset, assetUrls);
   const targetScene = block.type === "jump" && block.targetSceneId
     ? project.scenes.find((item) => item.id === block.targetSceneId)
     : undefined;
@@ -1737,6 +1790,19 @@ function PreviewBlockEditor({
   const activeAssetUrl = resolveRegisteredAssetUrl(activeAsset, assetUrls);
   const activePosition = block.type === "dialogue" ? activeReaction?.position || block.position || assetDefaultPosition(activeAsset) : "center";
   const activeTransform = block.type === "dialogue" ? activeReaction?.transform || block.transform || assetDefaultTransform(activeAsset) : {};
+  const activeAnimation = activeExpression?.webgalAnimation;
+  const hasMouthDiffs = Boolean(activeAnimation?.mouthOpenAssetId && activeAnimation?.mouthCloseAssetId);
+  const hasBlinkDiffs = Boolean(activeAnimation?.eyesCloseAssetId);
+  const reactionChoices = block.type === "dialogue" && continueOptions.length
+    ? [{ id: "", label: "默认台词" }, ...continueOptions.map((option) => ({ id: option.id, label: option.label }))]
+    : [];
+  const reactionIndex = Math.max(0, reactionChoices.findIndex((item) => item.id === reactionOptionId));
+  const cycleReaction = (direction: -1 | 1) => {
+    if (!reactionChoices.length) return;
+    const next = (reactionIndex + direction + reactionChoices.length) % reactionChoices.length;
+    setReactionOptionId(reactionChoices[next].id);
+    setExpanded(true);
+  };
 
   const updateDialogueVariant = (patch: Partial<Extract<StoryBlock, { type: "dialogue" }>> & { text?: string }) => {
     if (block.type !== "dialogue") return;
@@ -1764,11 +1830,11 @@ function PreviewBlockEditor({
   };
 
   return (
-    <article className={`preview-block-card preview-block-card--${block.type}`}>
+    <article className={`preview-block-card preview-block-card--${block.type} ${dirty ? "is-dirty" : ""}`}>
       <header>
         <span>{String(index + 1).padStart(2, "0")}</span>
         <strong>
-          {block.type === "dialogue" && (character?.displayName || "角色对白")}
+          {block.type === "dialogue" && (activeCharacter?.displayName || character?.displayName || "角色对白")}
           {block.type === "narration" && "旁白"}
           {block.type === "stage" && stageActionLabels[block.action]}
           {block.type === "choice" && "玩家选择"}
@@ -1780,16 +1846,25 @@ function PreviewBlockEditor({
           {block.type === "save-point" && "存档点"}
           {block.type === "blog-action" && "Blog 动作"}
           {block.type === "ai-turn" && "AI 交互"}
+          {block.type === "native" && "WebGAL 指令"}
           {block.type === "comment" && "编剧备注"}
         </strong>
-        <small>{block.type}</small>
-        {(block.type === "dialogue" || block.type === "choice") && <button className="preview-block-expand" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开编辑"}<ChevronDown size={12} /></button>}
+        {dirty && <i className="preview-block-dirty">草稿</i>}
+        <div className="preview-block-actions">
+          <button onClick={() => onReplayFromBlock?.(block.id)} title="从这里试玩" aria-label="从这里试玩"><Play size={12} /></button>
+          <button onClick={() => onMove(-1)} disabled={index === 0} title="上移" aria-label="上移"><ArrowUp size={12} /></button>
+          <button onClick={() => onMove(1)} disabled={index >= total - 1} title="下移" aria-label="下移"><ArrowDown size={12} /></button>
+          <button onClick={onDelete} title="删除" aria-label="删除"><Trash2 size={12} /></button>
+          {(block.type === "dialogue" || block.type === "choice" || block.type === "stage") && <button className="preview-block-expand" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "编辑"}<ChevronDown size={12} /></button>}
+        </div>
       </header>
       {block.type === "dialogue" && continueOptions.length > 0 && (
-        <div className="dialogue-reaction-tabs">
-          <span>上一组选项的下一句反应</span>
-          <button className={!reactionOptionId ? "active" : ""} onClick={() => setReactionOptionId("")}>默认台词</button>
-          {continueOptions.map((option) => <button key={option.id} className={reactionOptionId === option.id ? "active" : ""} onClick={() => { setReactionOptionId(option.id); setExpanded(true); }}>{option.label}{block.choiceReactions?.some((item) => item.choiceBlockId === previousChoice?.id && item.optionId === option.id) ? <Check size={10} /> : <Plus size={10} />}</button>)}
+        <div className="dialogue-reaction-carousel">
+          <span>上一组选项对应的这一句</span>
+          <button onClick={() => cycleReaction(-1)} aria-label="上一个选项反应"><ChevronLeft size={14} /></button>
+          <strong>{reactionChoices[reactionIndex]?.label}</strong>
+          <small>{reactionOptionId && block.choiceReactions?.some((item) => item.choiceBlockId === previousChoice?.id && item.optionId === reactionOptionId) ? "已单独修改" : reactionOptionId ? "沿用默认，可直接改" : "所有路线默认"}</small>
+          <button onClick={() => cycleReaction(1)} aria-label="下一个选项反应"><ChevronRight size={14} /></button>
         </div>
       )}
       {(block.type === "dialogue" || block.type === "narration") && (
@@ -1812,6 +1887,8 @@ function PreviewBlockEditor({
           <div className="line-performance-fields">
             <label>这一句的角色<select value={activeCharacterId || ""} onChange={(event) => updateDialogueVariant({ characterId: event.target.value, expressionId: undefined })}>{project.characters.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
             <label>表情 / 动态立绘<select value={activeExpressionId || ""} onChange={(event) => updateDialogueVariant({ expressionId: event.target.value || undefined })}><option value="">角色默认</option>{activeCharacter?.expressions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>角色画面变化<select value={block.enter?.name || "direct"} onChange={(event) => onCommit({ ...block, enter: event.target.value === "direct" ? undefined : { name: event.target.value, durationMs: block.enter?.durationMs || 420 } })}><option value="direct">直接替换（姿势 / 表情默认）</option><option value="enter">柔和入场</option><option value="enter-from-left">从左侧入场</option><option value="enter-from-right">从右侧入场</option><option value="enter-from-bottom">从下方入场</option></select></label>
+            <label>变化时长<select value={String(block.enter?.durationMs || 420)} disabled={!block.enter} onChange={(event) => onCommit({ ...block, enter: block.enter ? { ...block.enter, durationMs: Number(event.target.value) } : undefined })}><option value="260">快速 · 260ms</option><option value="420">自然 · 420ms</option><option value="700">缓慢 · 700ms</option></select></label>
           </div>
           <FigureStageEditor
             asset={activeAsset}
@@ -1825,20 +1902,25 @@ function PreviewBlockEditor({
             onReset={() => updateDialogueVariant({ position: assetDefaultPosition(activeAsset), transform: assetDefaultTransform(activeAsset) })}
             compact
           />
-          <p>这里改的是这一句实际出现时的构图；资源页仍保存角色默认值。选项反应可以只改台词，也可以同时换表情、站位和镜头。</p>
         </div>
       )}
       {block.type === "dialogue" && (
-        <div className="preview-voice-row">
-          <span>{block.voiceAssetId ? <><Check size={12} /> 已绑定语音</> : "未绑定语音；无语音时 WebGAL 仍会模拟嘴型"}</span>
-          <button onClick={() => onGenerateVoice?.(block)} disabled={generatingVoice}>
-            <FileAudio size={13} /> {generatingVoice ? "正在生成…" : "一键生成 TTS"}
-          </button>
-        </div>
+        <details className="line-animation-controls">
+          <summary><span>语音与表情动作</span><b>{block.voiceAssetId ? "有语音" : "无语音"}</b><ChevronDown size={12} /></summary>
+          <div>
+            <label>语音<select value={block.voiceAssetId || ""} onChange={(event) => onCommit({ ...block, voiceAssetId: event.target.value || undefined })}><option value="">不绑定</option>{project.assets.filter((item) => item.kind === "voice").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <button className="line-tts-button" onClick={() => onGenerateVoice?.(block)} disabled={generatingVoice}><FileAudio size={12} /> {generatingVoice ? "生成中" : "生成语音"}</button>
+            <label>口型<select value={block.figureAnimation?.mouthSync || "inherit"} disabled={!hasMouthDiffs} onChange={(event) => onCommit({ ...block, figureAnimation: { ...block.figureAnimation, mouthSync: event.target.value as NonNullable<typeof block.figureAnimation>["mouthSync"] } })}><option value="inherit">跟随立绘设置</option><option value="on">开启</option><option value="off">关闭</option></select></label>
+            <label>眨眼<select value={block.figureAnimation?.blink || "inherit"} disabled={!hasBlinkDiffs} onChange={(event) => onCommit({ ...block, figureAnimation: { ...block.figureAnimation, blink: event.target.value as NonNullable<typeof block.figureAnimation>["blink"] } })}><option value="inherit">跟随立绘设置</option><option value="dynamic">自然眨眼</option><option value="fixed-open">保持睁眼</option><option value="fixed-closed">保持闭眼</option><option value="none">关闭眨眼</option></select></label>
+          </div>
+        </details>
       )}
       {block.type === "choice" && (
         <div className="preview-choice-editor">
-          {block.prompt && <p>{block.groupCode || `Q${index + 1}`} · {block.prompt}</p>}
+          <div className="preview-choice-heading">
+            <p><strong>{choiceGroupDisplayName(project, project.scenes.find((scene) => scene.blocks.some((item) => item.id === block.id)) || project.scenes[0], block)}</strong><small>{block.groupCode || `Q${index + 1}`} · {block.prompt || "玩家要怎么回应？"}</small></p>
+            <button onClick={() => onReplayFromGroup?.(block.id)}><Play size={11} /> 从本组重播</button>
+          </div>
           {block.options.map((option, optionIndex) => (
             <label key={option.id}>
               <span>{optionIndex + 1}</span>
@@ -1855,16 +1937,44 @@ function PreviewBlockEditor({
                   });
                 }}
               />
-              {expanded && <small>{option.targetChoiceGroupId ? `跳到选项组 ${option.targetChoiceGroupId}` : option.endScene ? "结束片段并按地图继续" : "继续本片段；可影响下一句"}{option.recordId ? ` · 写入记录` : ""}</small>}
+              {expanded && <small>{option.targetChoiceGroupId ? `跳到「${project.scenes.flatMap((scene) => scene.blocks.filter((item): item is Extract<StoryBlock, { type: "choice" }> => item.type === "choice").map((item) => ({ scene, item }))).find(({ item }) => item.id === option.targetChoiceGroupId)?.item.groupName || "选项组"}」` : option.endScene ? "结束片段并按地图继续" : "继续本片段；只影响下一句"}{option.recordId ? ` · 写入一次性记录` : ""}</small>}
             </label>
           ))}
         </div>
       )}
       {block.type === "stage" && (
-        <p className="preview-block-summary">
-          {character?.displayName || asset?.name || block.transition?.name || "按片段舞台状态执行"}
-          {block.position ? ` · ${block.position}` : ""}
-        </p>
+        <>
+          <p className="preview-block-summary">
+            {character?.displayName || asset?.name || block.transition?.name || "按片段舞台状态执行"}
+            {block.position ? ` · ${block.position}` : ""}
+            {block.transition?.name ? ` · ${block.transition.name} / ${block.transition.durationMs || block.durationMs || 0}ms` : " · 无额外过渡"}
+          </p>
+          {expanded && (
+            <div className="stage-performance-editor">
+              <label>操作<select value={block.action} onChange={(event) => onCommit({ ...block, action: event.target.value as typeof block.action, assetId: undefined, characterId: undefined, expressionId: undefined, transition: undefined })}>{Object.entries(stageActionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              {block.action === "set-background" && <label>背景素材<select value={block.assetId || ""} onChange={(event) => onCommit({ ...block, assetId: event.target.value || undefined })}><option value="">未设置</option>{project.assets.filter((item) => item.kind === "background").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+              {["play-bgm", "play-sfx", "play-video"].includes(block.action) && <label>播放素材<select value={block.assetId || ""} onChange={(event) => onCommit({ ...block, assetId: event.target.value || undefined })}><option value="">未设置</option>{project.assets.filter((item) => block.action === "play-bgm" ? item.kind === "bgm" : block.action === "play-sfx" ? item.kind === "sfx" : item.kind === "video").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+              {["enter-character", "exit-character", "move-character", "set-expression"].includes(block.action) && <label>角色<select value={block.characterId || ""} onChange={(event) => onCommit({ ...block, characterId: event.target.value || undefined, expressionId: undefined })}><option value="">选择角色</option>{project.characters.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>}
+              {block.characterId && !["exit-character", "move-character"].includes(block.action) && <label>差分<select value={block.expressionId || ""} onChange={(event) => onCommit({ ...block, expressionId: event.target.value || undefined })}><option value="">角色默认</option>{character?.expressions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+              <label>演出效果<select value={block.transition?.name || "direct"} onChange={(event) => onCommit({ ...block, transition: event.target.value === "direct" ? undefined : { name: event.target.value, durationMs: WEBGAL_ANIMATION_PRESETS.find((preset) => preset.name === event.target.value)?.durationMs || block.transition?.durationMs || 420 } })}><option value="direct">直接切换</option>{WEBGAL_ANIMATION_PRESETS.filter((preset) => block.action === "transition" || block.action === "exit-character" ? preset.name === "exit" || block.action === "transition" : ["enter", "enter-from-left", "enter-from-right", "enter-from-bottom"].includes(preset.name)).map((preset) => <option key={preset.name} value={preset.name}>{preset.label}</option>)}</select></label>
+              <label>效果时长<select value={String(block.transition?.durationMs || block.durationMs || 420)} disabled={!block.transition && !block.durationMs} onChange={(event) => onCommit({ ...block, transition: block.transition ? { ...block.transition, durationMs: Number(event.target.value) } : undefined, durationMs: block.transition ? block.durationMs : Number(event.target.value) })}><option value="260">快速 · 260ms</option><option value="420">自然 · 420ms</option><option value="700">缓慢 · 700ms</option><option value="1000">强调 · 1000ms</option></select></label>
+              {block.characterId && ["enter-character", "set-expression", "move-character"].includes(block.action) && (
+                <FigureStageEditor
+                  asset={stageFigureAsset}
+                  assetUrl={stageFigureUrl}
+                  backgroundUrl={backgroundUrl}
+                  characterName={character?.displayName || "当前角色"}
+                  position={block.position || assetDefaultPosition(stageFigureAsset)}
+                  transform={block.transform || assetDefaultTransform(stageFigureAsset)}
+                  shot={figureShotFromTransform(block.transform || assetDefaultTransform(stageFigureAsset), stageFigureAsset)}
+                  onCommit={(layout) => onCommit({ ...block, position: layout.position, transform: layout.transform })}
+                  onReset={() => onCommit({ ...block, position: assetDefaultPosition(stageFigureAsset), transform: assetDefaultTransform(stageFigureAsset) })}
+                  compact
+                />
+              )}
+            </div>
+          )}
+        </>
       )}
       {block.type === "jump" && (
         <p className="preview-block-summary">
@@ -1877,6 +1987,8 @@ function PreviewBlockEditor({
       {block.type === "input" && (
         <p className="preview-block-summary">{block.title}</p>
       )}
+      {block.type === "native" && <pre className="preview-native-summary">{block.script}</pre>}
+      {block.type === "comment" && <p className="preview-block-summary">{block.text}</p>}
     </article>
   );
 }
@@ -1886,17 +1998,19 @@ function SimplePreviewWorkspace({
   selectedSceneId,
   onSelectScene,
   onChange,
-  onAdvanced,
   onExitPreview,
 }: PreviewWorkspaceProps) {
   const scene = project.scenes.find((item) => item.id === selectedSceneId) || project.scenes[0];
+  const [draftScene, setDraftScene] = useState<StoryScene>(() => structuredClone(scene));
+  const [dirtyBlockIds, setDirtyBlockIds] = useState<Set<string>>(() => new Set());
+  const [pendingReplayBlockId, setPendingReplayBlockId] = useState<string>();
+  const [replayStartBlockId, setReplayStartBlockId] = useState<string>();
+  const draftSceneId = useRef(scene.id);
+  const workingScene = draftScene.id === scene.id ? draftScene : scene;
   const previewAssetUrls = useProjectAssetUrls(project);
-  const previewBackground = project.assets.find((asset) => asset.id === scene?.entryStage?.backgroundAssetId)
+  const previewBackground = project.assets.find((asset) => asset.id === workingScene?.entryStage?.backgroundAssetId)
     || project.assets.find((asset) => asset.kind === "background");
   const previewBackgroundUrl = resolveRegisteredAssetUrl(previewBackground, previewAssetUrls);
-  const [instruction, setInstruction] = useState("");
-  const [result, setResult] = useState<DirectorDraft>();
-  const [revisionLog, setRevisionLog] = useState<string[]>([]);
   const [restartKey, setRestartKey] = useState(0);
   const [generatingVoiceId, setGeneratingVoiceId] = useState<string>();
   const [ttsMessage, setTtsMessage] = useState("");
@@ -1905,8 +2019,34 @@ function SimplePreviewWorkspace({
   const [webgalUrl, setWebgalUrl] = useState("");
   const [webgalStatus, setWebgalStatus] = useState("正在编译 WebGAL 实机…");
   const [webgalWarnings, setWebgalWarnings] = useState<string[]>([]);
-  const previewPane = useResizablePane("gal-preview-editor-width-v2", 390, 360, 760);
+  const [playerLanguage, setPlayerLanguage] = useState(() => {
+    if (typeof window === "undefined") return "2";
+    const saved = window.localStorage.getItem("lang");
+    return ["0", "1", "2"].includes(saved || "") ? saved! : "2";
+  });
+  const previewPane = useResizablePane("gal-preview-editor-width-v3", 520, 420, 820);
   const stageCardRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const switchingScene = draftSceneId.current !== scene.id;
+    if (!switchingScene && dirtyBlockIds.size) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      draftSceneId.current = scene.id;
+      setDraftScene(structuredClone(scene));
+      if (switchingScene) {
+        setDirtyBlockIds(new Set());
+        setPendingReplayBlockId(undefined);
+        setReplayStartBlockId(undefined);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [dirtyBlockIds.size, scene]);
+
+  useEffect(() => {
+    window.localStorage.setItem("lang", playerLanguage);
+  }, [playerLanguage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1916,7 +2056,7 @@ function SimplePreviewWorkspace({
       setWebgalStatus("正在编译 WebGAL 实机…");
       setWebgalUrl("");
     });
-    void prepareWebGalPreview(project, scene.id).then((prepared) => {
+    void prepareWebGalPreview(project, scene.id, { startBlockId: replayStartBlockId }).then((prepared) => {
       if (cancelled) return;
       setWebgalUrl(prepared.url);
       setWebgalWarnings(prepared.warnings);
@@ -1926,7 +2066,7 @@ function SimplePreviewWorkspace({
       setWebgalStatus(error instanceof Error ? error.message : "WebGAL 实机预览准备失败");
     });
     return () => { cancelled = true; };
-  }, [project, restartKey, scene]);
+  }, [project, replayStartBlockId, restartKey, scene]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(document.fullscreenElement === stageCardRef.current);
@@ -1946,29 +2086,105 @@ function SimplePreviewWorkspace({
     }
   };
 
-  const updateBlock = (nextBlock: StoryBlock) => {
-    if (!scene) return;
-    const currentBlock = scene.blocks.find((block) => block.id === nextBlock.id);
+  const updateBlock = (nextBlock: StoryBlock, replayBlockId?: string) => {
+    const currentBlock = workingScene.blocks.find((block) => block.id === nextBlock.id);
     if (!currentBlock || JSON.stringify(currentBlock) === JSON.stringify(nextBlock)) return;
-    onChange({
+    setDraftScene((current) => ({ ...current, blocks: current.blocks.map((block) => block.id === nextBlock.id ? nextBlock : block) }));
+    setDirtyBlockIds((items) => new Set(items).add(nextBlock.id));
+    setPendingReplayBlockId(replayBlockId || nextBlock.id);
+  };
+
+  const applyDraft = () => {
+    if (!dirtyBlockIds.size) return;
+    const remainingIds = new Set(workingScene.blocks.map((block) => block.id));
+    const removedIds = new Set(scene.blocks.filter((block) => !remainingIds.has(block.id)).map((block) => block.id));
+    const cleanReferences = (item: StoryScene): StoryScene => ({
+      ...item,
+      blocks: item.blocks.map((block): StoryBlock => {
+        if (block.type === "choice") return {
+          ...block,
+          options: block.options.map((option) => ({
+            ...option,
+            targetBlockId: option.targetBlockId && removedIds.has(option.targetBlockId) ? undefined : option.targetBlockId,
+            targetChoiceGroupId: option.targetChoiceGroupId && removedIds.has(option.targetChoiceGroupId) ? undefined : option.targetChoiceGroupId,
+          })),
+        };
+        if (block.type === "dialogue") return { ...block, choiceReactions: block.choiceReactions?.filter((reaction) => !removedIds.has(reaction.choiceBlockId)) };
+        if (block.type === "jump" && block.targetBlockId && removedIds.has(block.targetBlockId)) return { ...block, targetBlockId: undefined };
+        return block;
+      }),
+    });
+    const nextProject = {
       ...project,
-      scenes: project.scenes.map((item) => (
-        item.id === scene.id
-          ? { ...item, blocks: item.blocks.map((block) => block.id === nextBlock.id ? nextBlock : block) }
-          : item
-      )),
+      scenes: project.scenes.map((item) => cleanReferences(item.id === scene.id ? workingScene : item)),
       updatedAt: nowIso(),
-    }, `编辑「${scene.name}」的片段内容`);
+    };
+    setReplayStartBlockId(pendingReplayBlockId);
+    setDirtyBlockIds(new Set());
+    onChange(nextProject, `应用「${scene.name}」的 ${dirtyBlockIds.size} 处试玩修订`);
     setRestartKey((value) => value + 1);
   };
 
-  const revise = () => {
-    if (!scene || !instruction.trim()) return;
-    const draft = reviseSceneWithInstruction(project, scene.id, instruction);
-    onChange(draft.project, `本地规则修订「${scene.name}」`, "system");
-    setResult(draft);
-    setRevisionLog((items) => [instruction.trim(), ...items].slice(0, 6));
-    setInstruction("");
+  const discardDraft = () => {
+    setDraftScene(structuredClone(scene));
+    setDirtyBlockIds(new Set());
+    setPendingReplayBlockId(undefined);
+  };
+
+  const replayFromBlock = (blockId: string) => {
+    setPendingReplayBlockId(blockId);
+    if (dirtyBlockIds.size) return;
+    setReplayStartBlockId(blockId);
+    setRestartKey((value) => value + 1);
+  };
+
+  const insertBlock = (at: number, kind: InsertBlockKind) => {
+    const firstCharacter = project.characters[0];
+    const firstExpressionId = firstCharacter?.defaultExpressionId || firstCharacter?.expressions[0]?.id;
+    const base = { id: createId(kind), source: "human" as const, createdAt: nowIso() };
+    let block: StoryBlock;
+    if (kind === "dialogue" && firstCharacter) block = { ...base, type: "dialogue", characterId: firstCharacter.id, expressionId: firstExpressionId, text: "新台词" };
+    else if (kind === "choice") {
+      const draftProject = { ...project, scenes: project.scenes.map((item) => item.id === workingScene.id ? workingScene : item) };
+      block = {
+        ...base,
+        type: "choice",
+        ...nextChoiceGroupIdentity(draftProject, workingScene),
+        prompt: "玩家要怎么回应？",
+        options: [{ id: createId("option"), label: "选项一" }, { id: createId("option"), label: "选项二" }],
+      };
+    } else if (kind === "background") block = { ...base, type: "stage", action: "set-background", assetId: project.assets.find((item) => item.kind === "background")?.id };
+    else if (kind === "figure") block = { ...base, type: "stage", action: "enter-character", characterId: firstCharacter?.id, expressionId: firstExpressionId, position: "center" };
+    else if (kind === "bgm") block = { ...base, type: "stage", action: "play-bgm", assetId: project.assets.find((item) => item.kind === "bgm")?.id, volume: 0.25 };
+    else if (kind === "sfx") block = { ...base, type: "stage", action: "play-sfx", assetId: project.assets.find((item) => item.kind === "sfx")?.id };
+    else if (kind === "wait") block = { ...base, type: "stage", action: "wait", durationMs: 500 };
+    else if (kind === "animation") block = { ...base, type: "stage", action: "transition", animationTarget: "stage-main", transition: { name: "shake", durationMs: 1000 } };
+    else block = { ...base, type: "narration", text: "新旁白" };
+    setDraftScene((current) => {
+      const blocks = [...current.blocks];
+      blocks.splice(Math.max(0, Math.min(at, blocks.length)), 0, block);
+      return { ...current, blocks };
+    });
+    setDirtyBlockIds((items) => new Set(items).add(block.id));
+    setPendingReplayBlockId(block.id);
+  };
+
+  const moveBlock = (blockId: string, direction: -1 | 1) => {
+    const index = workingScene.blocks.findIndex((block) => block.id === blockId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= workingScene.blocks.length) return;
+    const blocks = [...workingScene.blocks];
+    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+    setDraftScene({ ...workingScene, blocks });
+    setDirtyBlockIds((items) => new Set(items).add(blockId).add(blocks[index].id));
+    setPendingReplayBlockId(blockId);
+  };
+
+  const deleteBlock = (blockId: string) => {
+    setDraftScene((current) => ({ ...current, blocks: current.blocks.filter((block) => block.id !== blockId) }));
+    setDirtyBlockIds((items) => new Set(items).add(blockId));
+    const index = workingScene.blocks.findIndex((block) => block.id === blockId);
+    setPendingReplayBlockId(workingScene.blocks[index + 1]?.id || workingScene.blocks[index - 1]?.id);
   };
 
   const generateVoice = async (block: Extract<StoryBlock, { type: "dialogue" }>) => {
@@ -2007,13 +2223,14 @@ function SimplePreviewWorkspace({
         ...project,
         assets: [...project.assets, voiceAsset],
         scenes: project.scenes.map((item) => item.id === scene.id ? {
-          ...item,
-          blocks: item.blocks.map((itemBlock) => itemBlock.id === block.id && itemBlock.type === "dialogue"
+          ...workingScene,
+          blocks: workingScene.blocks.map((itemBlock) => itemBlock.id === block.id && itemBlock.type === "dialogue"
             ? { ...itemBlock, voiceAssetId: assetId }
             : itemBlock),
         } : item),
         updatedAt: nowIso(),
       }, `为「${scene.name}」生成 TTS 语音`, "ai");
+      setDirtyBlockIds(new Set());
       setTtsMessage("语音已生成并绑定；WebGAL 会按真实音量驱动嘴型。 ");
       setRestartKey((value) => value + 1);
     } catch (error) {
@@ -2023,8 +2240,6 @@ function SimplePreviewWorkspace({
     }
   };
 
-  const quickInstructions = ["让爱丽丝的语气更温柔", "把节奏放慢一些", "切换为 Q 版立绘", "结尾增加三个选项"];
-
   return (
     <div className={`simple-preview-page ${focusMode ? "is-focus-mode" : ""}`}>
       <header className="preview-workbench-header">
@@ -2033,9 +2248,15 @@ function SimplePreviewWorkspace({
             <ArrowLeft size={17} />
           </button>
           <div>
-            <span>实时试玩</span>
             <strong>{scene?.name || "当前片段"}</strong>
           </div>
+          <select className="preview-scene-select" value={scene?.id || ""} onChange={(event) => {
+            if (dirtyBlockIds.size && !window.confirm("当前片段还有未应用的修改。切换后会放弃，继续吗？")) return;
+            onSelectScene(event.target.value);
+            setRestartKey((value) => value + 1);
+          }} aria-label="选择剧情片段">
+            {project.scenes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
         </div>
         <div className="preview-workbench-actions">
           <button className={!focusMode ? "active" : ""} onClick={() => setFocusMode(false)}>
@@ -2044,68 +2265,45 @@ function SimplePreviewWorkspace({
           <button className={focusMode ? "active" : ""} onClick={() => setFocusMode(true)}>
             <PanelLeftClose size={15} /> 专注试玩
           </button>
-          <button onClick={() => onAdvanced("story")}><Settings2 size={15} /> 细节编辑</button>
         </div>
       </header>
-      <div className="preview-scene-strip" aria-label="选择要试玩的剧情片段">
-        {project.scenes.map((item, index) => (
-          <button key={item.id} className={item.id === scene?.id ? "active" : ""} onClick={() => {
-            onSelectScene(item.id);
-            setRestartKey((value) => value + 1);
-            setInstruction("");
-            setResult(undefined);
-          }}>
-            <small>{String(index + 1).padStart(2, "0")}</small><span>{item.name}</span><Play size={13} />
-          </button>
-        ))}
-      </div>
       {scene && (
         <div className="simple-preview-layout" style={{ gridTemplateColumns: focusMode ? "minmax(0, 1fr)" : `${previewPane.width}px 8px minmax(680px, 1fr)` }}>
           <aside className="preview-editor-panel">
             <section className="preview-block-editor">
               <header>
-                <div><span>当前片段</span><strong>{scene.name}</strong></div>
-                <small>{scene.blocks.length} 个内容块</small>
+                <strong>{workingScene.name}</strong>
               </header>
+              {dirtyBlockIds.size > 0 && <div className="preview-draft-toolbar is-dirty"><strong>{dirtyBlockIds.size} 处未应用</strong><button onClick={discardDraft}>放弃</button><button className="simple-primary" onClick={applyDraft}><Play size={12} /> 应用并从修改处试玩</button></div>}
               <div className="preview-block-list">
-                {scene.blocks.map((block, index) => (
-                  <PreviewBlockEditor
-                    key={block.id}
-                    block={block}
-                    index={index}
-                    project={project}
-                    previousChoice={precedingChoice(scene.blocks, index)}
-                    assetUrls={previewAssetUrls}
-                    backgroundUrl={previewBackgroundUrl}
-                    onCommit={updateBlock}
-                    onGenerateVoice={generateVoice}
-                    generatingVoice={generatingVoiceId === block.id}
-                  />
-                ))}
+                <BlockInsertMenu onInsert={(kind) => insertBlock(0, kind)} canDialogue={project.characters.length > 0} />
+                {workingScene.blocks.map((block) => {
+                  const index = workingScene.blocks.findIndex((item) => item.id === block.id);
+                  return (
+                    <div className="preview-block-sequence" key={block.id}>
+                      <PreviewBlockEditor
+                        block={block}
+                        index={index}
+                        total={workingScene.blocks.length}
+                        project={{ ...project, scenes: project.scenes.map((item) => item.id === workingScene.id ? workingScene : item) }}
+                        previousChoice={precedingChoice(workingScene.blocks, index)}
+                        assetUrls={previewAssetUrls}
+                        backgroundUrl={previewBackgroundUrl}
+                        onCommit={(nextBlock) => updateBlock(nextBlock)}
+                        onReplayFromGroup={replayFromBlock}
+                        onReplayFromBlock={replayFromBlock}
+                        onMove={(direction) => moveBlock(block.id, direction)}
+                        onDelete={() => deleteBlock(block.id)}
+                        onGenerateVoice={generateVoice}
+                        generatingVoice={generatingVoiceId === block.id}
+                        dirty={dirtyBlockIds.has(block.id)}
+                      />
+                      <BlockInsertMenu onInsert={(kind) => insertBlock(index + 1, kind)} canDialogue={project.characters.length > 0} />
+                    </div>
+                  );
+                })}
                 {ttsMessage && <p className="preview-tts-message">{ttsMessage}</p>}
-                {!scene.blocks.length && <p className="preview-block-empty">这个片段还是空的。回到故事地图，用一句话生成内容。</p>}
               </div>
-            </section>
-            <section className="revision-panel">
-              <header>
-                <span className="revision-avatar"><Sparkles size={18} /></span>
-                <div><strong>演出修订</strong><p>只修改当前片段，其他片段和路线保持不动。</p></div>
-              </header>
-              <label className="revision-compose">
-                <span>哪里需要调整？</span>
-                <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="例如：让爱丽丝站在右侧，用腰上镜头；语气更温柔。" />
-              </label>
-              <div className="revision-quick">
-                {quickInstructions.map((item) => <button key={item} onClick={() => setInstruction(item)}>{item}</button>)}
-              </div>
-              <button className="revision-submit" onClick={revise} disabled={!instruction.trim()}><WandSparkles size={16} /> 运行本地规则修订（非 AI） <ChevronRight size={17} /></button>
-              {result && <DirectorResultCard result={result} />}
-              {revisionLog.length > 0 && (
-                <div className="revision-history">
-                  <strong>这次试玩的修改</strong>
-                  {revisionLog.map((item, index) => <p key={`${item}-${index}`}><span>{index + 1}</span>{item}</p>)}
-                </div>
-              )}
             </section>
           </aside>
           {!focusMode && <SplitGrip onPointerDown={(event) => previewPane.startResize(event, "left")} label="拖动调整逐句编辑与实机画面宽度" />}
@@ -2113,7 +2311,10 @@ function SimplePreviewWorkspace({
             <div className="play-stage-heading">
               <div><span>{project.chapters.find((chapter) => chapter.id === scene.chapterId)?.name}</span><strong>{scene.name}</strong></div>
               <div className="play-stage-actions">
-                <button className="soft-button" onClick={() => setRestartKey((value) => value + 1)}>
+                <div className="preview-language-switch" aria-label="WebGAL 界面语言">
+                  {[{ value: "2", label: "日" }, { value: "0", label: "中" }, { value: "1", label: "EN" }].map((language) => <button key={language.value} className={playerLanguage === language.value ? "active" : ""} onClick={() => { setPlayerLanguage(language.value); setRestartKey((value) => value + 1); }}>{language.label}</button>)}
+                </div>
+                <button className="soft-button" onClick={() => { setReplayStartBlockId(undefined); setRestartKey((value) => value + 1); }}>
                   <RotateCcw size={14} /> 从本段开头重播
                 </button>
                 <button className="stage-fullscreen-button" onClick={() => void toggleFullscreen()}>
@@ -2122,9 +2323,9 @@ function SimplePreviewWorkspace({
               </div>
             </div>
             <div className="webgal-live-stage">
-              {webgalUrl ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" /> : <div className="webgal-live-stage__loading"><Gamepad2 size={28} /><strong>{webgalStatus}</strong><span>试玩使用当前 Story IR 编译出的 WebGAL 工程。</span></div>}
+              {webgalUrl ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" /> : <div className="webgal-live-stage__loading"><Gamepad2 size={28} /><strong>{webgalStatus}</strong></div>}
             </div>
-            {webgalWarnings.length > 0 && <p className="webgal-preview-warning">{webgalWarnings.join(" · ")}</p>}
+            {webgalWarnings.length > 0 && <button className="webgal-preview-warning" title={webgalWarnings.join(" · ")}><TriangleAlert size={13} /> {webgalWarnings.length}</button>}
           </main>
         </div>
       )}
@@ -2161,14 +2362,12 @@ function CreationDialog({ kind, project, selectedSceneId, onClose, onCreateScene
             <label>片段名称<input value={sceneDraft.name} onChange={(event) => setSceneDraft({ ...sceneDraft, name: event.target.value })} /></label>
             <label>所属章节<select value={sceneDraft.chapterId} onChange={(event) => setSceneDraft({ ...sceneDraft, chapterId: event.target.value })}>{project.chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.name}</option>)}</select></label>
             <label>一句话概括（可稍后生成）<textarea rows={5} value={sceneDraft.summary} onChange={(event) => setSceneDraft({ ...sceneDraft, summary: event.target.value })} placeholder="白昼的茶室，爱丽丝邀请主人坐下，并给出几个选择……" /></label>
-            <p>这里只创建片段，不会偷偷新增分支线。创建后可从节点底部拖线连接；内部选项和循环仍留在片段里。</p>
             <footer><button onClick={onClose}>取消</button><button className="simple-primary" onClick={() => onCreateScene(sceneDraft)} disabled={!sceneDraft.name.trim() || !sceneDraft.chapterId}>创建并开始写</button></footer>
           </>
         ) : (
           <>
             <label>章节标题<input value={chapterDraft.name} onChange={(event) => setChapterDraft({ ...chapterDraft, name: event.target.value })} placeholder="章节 2 · 雪夜来信" /></label>
             <label>章节说明<textarea rows={5} value={chapterDraft.description} onChange={(event) => setChapterDraft({ ...chapterDraft, description: event.target.value })} placeholder="这一章的主题、时间和主要目标…" /></label>
-            <p>章节的第一个剧情片段在试玩时会自动出现章节标题演出。</p>
             <footer><button onClick={onClose}>取消</button><button className="simple-primary" onClick={() => onCreateChapter(chapterDraft)} disabled={!chapterDraft.name.trim()}>创建章节</button></footer>
           </>
         )}
@@ -2277,7 +2476,6 @@ function RuntimeExportDialog({ project, onChange, onClose }: {
 export function SimpleStudio({
   project,
   selectedSceneId,
-  diagnostics,
   savedAt,
   canUndo,
   canRedo,
@@ -2285,12 +2483,10 @@ export function SimpleStudio({
   onChange,
   onUndo,
   onRedo,
-  onAdvanced,
 }: Props) {
   const [section, setSection] = useState<SimpleSection>("story");
   const [creationKind, setCreationKind] = useState<"scene" | "chapter">();
   const [exportOpen, setExportOpen] = useState(false);
-  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   const activeSection = sectionItems.find((item) => item.id === section)!;
   const ActiveSectionIcon = activeSection.icon;
 
@@ -2369,12 +2565,8 @@ export function SimpleStudio({
           <div className="simple-save-state"><Save size={13} /><span>{savedAt}</span></div>
           <button className="icon-soft" onClick={onUndo} disabled={!canUndo} title="撤销"><Undo2 size={16} /></button>
           <button className="icon-soft" onClick={onRedo} disabled={!canRedo} title="重做"><Redo2 size={16} /></button>
-          <button className={`simple-health ${errors.length ? "has-error" : ""}`} onClick={() => onAdvanced("diagnostics")}>
-            <span />{errors.length ? `${errors.length} 个问题` : "项目正常"}
-          </button>
           <button className="simple-top-preview" onClick={() => setSection("preview")}><Play size={14} fill="currentColor" /> 试玩</button>
           <button className="simple-top-export" onClick={() => setExportOpen(true)}><Download size={14} /> 导出</button>
-          <button className="advanced-entry" onClick={() => onAdvanced()}><Settings2 size={15} /><span>高级模式</span></button>
         </div>
       </header>
       <div className={`simple-editor-body ${section === "preview" ? "is-previewing" : ""}`}>
@@ -2392,21 +2584,7 @@ export function SimpleStudio({
               );
             })}
           </nav>
-          <div className="simple-sidebar__project">
-            <span>当前项目</span>
-            <strong>{project.scenes.length} 个剧情片段</strong>
-            <p>{project.assets.length} 个素材 · {project.characters.length} 个角色</p>
-            {!project.assets.some((asset) => asset.kind === "bgm") && <small>当前没有 BGM，试玩会保持静音</small>}
-          </div>
-          {project.scenes.some((scene) => scene.tags.includes("ai-generated-acceptance")) && (
-            <div className="simple-sidebar__provenance">
-              <Bot size={16} />
-              <div>
-                <strong>AI 工具验收稿</strong>
-                <span>由本轮 ChatGPT 通过编辑器工具 API 生成；站内模型 Provider 尚未接入。</span>
-              </div>
-            </div>
-          )}
+          <StudioGuideAssistant project={project} selectedSceneId={selectedSceneId} section={section} onChange={onChange} />
         </aside>
         <div className="simple-editor-main">
           <div className="simple-progress-mobile">
@@ -2419,7 +2597,6 @@ export function SimpleStudio({
                 selectedSceneId={selectedSceneId}
                 onSelectScene={onSelectScene}
                 onChange={onChange}
-                onAdvanced={onAdvanced}
                 onCreate={setCreationKind}
                 onDeleteScene={deleteScene}
                 onOpenPreview={() => setSection("preview")}
@@ -2432,7 +2609,6 @@ export function SimpleStudio({
                 selectedSceneId={selectedSceneId}
                 onSelectScene={onSelectScene}
                 onChange={onChange}
-                onAdvanced={onAdvanced}
                 onExitPreview={() => setSection("story")}
               />
             )}

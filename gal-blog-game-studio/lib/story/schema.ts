@@ -17,7 +17,12 @@ const Block = z.discriminatedUnion("type", [
   Base.extend({ type: z.literal("dialogue"), characterId: Id, text: z.string(), expressionId: Id.optional(), voiceAssetId: Id.optional() }).passthrough(),
   Base.extend({ type: z.literal("narration"), text: z.string(), mode: z.enum(["adv", "nvl"]).optional() }).passthrough(),
   Base.extend({ type: z.literal("stage"), action: z.string() }).passthrough(),
-  Base.extend({ type: z.literal("choice"), options: z.array(z.object({ id: Id, label: z.string() }).passthrough()) }).passthrough(),
+  Base.extend({
+    type: z.literal("choice"),
+    groupCode: z.string().min(1).optional(),
+    groupName: z.string().min(1).optional(),
+    options: z.array(z.object({ id: Id, label: z.string() }).passthrough()),
+  }).passthrough(),
   Base.extend({ type: z.literal("input"), variableId: Id, title: z.string(), allowFreeText: z.boolean(), targets: z.array(z.enum(["story", "blog", "ai"])) }).passthrough(),
   Base.extend({ type: z.literal("condition"), branches: z.array(z.object({ id: Id, targetSceneId: Id }).passthrough()) }).passthrough(),
   Base.extend({ type: z.literal("variable"), operations: z.array(z.object({ variableId: Id, operation: z.string() }).passthrough()) }).passthrough(),
@@ -143,6 +148,25 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
     else seenIds.add(id);
   });
   duplicatedIds.forEach((id) => addReferenceError(`duplicate-${id}`, "ID_DUPLICATED", `ID「${id}」在项目中重复，编译和局部 patch 可能指向错误对象。`));
+
+  const choiceGroupNames = new Map<string, { name: string; sceneId: string; blockId: string }>();
+  const choiceGroupCodes = new Map<string, { code: string; sceneId: string; blockId: string }>();
+  project.scenes.forEach((scene) => scene.blocks.forEach((block) => {
+    if (block.type !== "choice") return;
+    const name = block.groupName?.trim();
+    if (name) {
+      const key = name.replace(/\s+/g, " ").toLocaleLowerCase();
+      const previous = choiceGroupNames.get(key);
+      if (previous) addReferenceError(`choice-group-name-duplicate-${block.id}`, "CHOICE_GROUP_NAME_DUPLICATED", `选项组名称「${name}」重复；跳转选择必须使用唯一名称。`, scene.id, block.id);
+      else choiceGroupNames.set(key, { name, sceneId: scene.id, blockId: block.id });
+    }
+    const code = block.groupCode?.trim();
+    if (!code) return;
+    const codeKey = code.toLocaleLowerCase();
+    const previousCode = choiceGroupCodes.get(codeKey);
+    if (previousCode) addReferenceError(`choice-group-code-duplicate-${block.id}`, "CHOICE_GROUP_CODE_DUPLICATED", `选项组编号「${code}」重复。`, scene.id, block.id);
+    else choiceGroupCodes.set(codeKey, { code, sceneId: scene.id, blockId: block.id });
+  }));
 
   if (!sceneIds.has(project.settings.startSceneId)) {
     diagnostics.push({ id: "start-scene", severity: "error", code: "START_SCENE_MISSING", message: "项目入口场景不存在。" });

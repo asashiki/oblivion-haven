@@ -114,9 +114,75 @@ async function removeOldSessions(cache: Cache, currentBase: string): Promise<voi
   }));
 }
 
-function previewEntryBlocks(project: StoryProject, sceneId: string): StoryBlock[] {
+function previewEntryBlocks(project: StoryProject, sceneId: string, startBlockId?: string): StoryBlock[] {
   const scene = project.scenes.find((item) => item.id === sceneId);
-  if (!scene?.entryStage) return [];
+  if (!scene) return [];
+
+  const targetIndex = startBlockId ? scene.blocks.findIndex((block) => block.id === startBlockId) : -1;
+  if (targetIndex >= 0) {
+    let backgroundAssetId = scene.entryStage?.backgroundAssetId;
+    let bgmAssetId = scene.entryStage?.bgmAssetId;
+    let mode = scene.mode;
+    const figures = new Map((scene.entryStage?.figures || []).map((figure) => [figure.characterId, { ...figure }]));
+
+    for (const block of scene.blocks.slice(0, targetIndex)) {
+      if (block.type === "mode") mode = block.mode;
+      if (block.type === "dialogue" && (block.expressionId || block.position || block.transform)) {
+        const current = figures.get(block.characterId);
+        figures.set(block.characterId, {
+          characterId: block.characterId,
+          expressionId: block.expressionId || current?.expressionId,
+          position: block.position || current?.position || "center",
+          transform: { ...(current?.transform || {}), ...(block.transform || {}) },
+        });
+      }
+      if (block.type !== "stage") continue;
+      if (block.action === "set-background") backgroundAssetId = block.assetId;
+      if (block.action === "play-bgm") bgmAssetId = block.assetId;
+      if (block.action === "stop-bgm") bgmAssetId = undefined;
+      if (block.action === "clear-stage") figures.clear();
+      if (block.action === "exit-character" && block.characterId) figures.delete(block.characterId);
+      if (["enter-character", "set-expression", "move-character"].includes(block.action) && block.characterId) {
+        const current = figures.get(block.characterId);
+        figures.set(block.characterId, {
+          characterId: block.characterId,
+          expressionId: block.expressionId || current?.expressionId,
+          position: block.position || current?.position || "center",
+          transform: { ...(current?.transform || {}), ...(block.transform || {}) },
+        });
+      }
+    }
+
+    const restored: StoryBlock[] = [];
+    if (mode !== scene.mode) restored.push({ id: `__preview_${scene.id}_mode`, type: "mode", mode, source: "native" });
+    if (backgroundAssetId) restored.push({
+      id: `__preview_${scene.id}_background`,
+      type: "stage",
+      action: "set-background",
+      assetId: backgroundAssetId,
+      source: "native",
+    });
+    if (bgmAssetId) restored.push({
+      id: `__preview_${scene.id}_bgm`,
+      type: "stage",
+      action: "play-bgm",
+      assetId: bgmAssetId,
+      source: "native",
+    });
+    [...figures.values()].forEach((figure, index) => restored.push({
+      id: `__preview_${scene.id}_figure_${index}`,
+      type: "stage",
+      action: "enter-character",
+      characterId: figure.characterId,
+      expressionId: figure.expressionId,
+      position: figure.position,
+      transform: figure.transform,
+      source: "native",
+    }));
+    return restored;
+  }
+
+  if (!scene.entryStage) return [];
 
   const firstContentIndex = scene.blocks.findIndex((block) => (
     block.type === "dialogue"
@@ -178,8 +244,18 @@ function previewEntryBlocks(project: StoryProject, sceneId: string): StoryBlock[
   return injected;
 }
 
-export function projectForWebGalPreview(project: StoryProject, sceneId: string): StoryProject {
-  const injected = previewEntryBlocks(project, sceneId);
+export function projectForWebGalPreview(project: StoryProject, sceneId: string, startBlockId?: string): StoryProject {
+  const injected = previewEntryBlocks(project, sceneId, startBlockId);
+  const scene = project.scenes.find((item) => item.id === sceneId);
+  const validStartBlock = startBlockId && scene?.blocks.some((block) => block.id === startBlockId)
+    ? startBlockId
+    : undefined;
+  const previewJump: StoryBlock[] = validStartBlock ? [{
+    id: `__preview_${sceneId}_jump_${validStartBlock}`,
+    type: "jump",
+    targetBlockId: validStartBlock,
+    source: "native",
+  }] : [];
   return {
     ...project,
     settings: {
@@ -187,8 +263,8 @@ export function projectForWebGalPreview(project: StoryProject, sceneId: string):
       startSceneId: sceneId,
     },
     scenes: project.scenes.map((scene) => (
-      scene.id === sceneId && injected.length
-        ? { ...scene, blocks: [...injected, ...scene.blocks] }
+      scene.id === sceneId && (injected.length || previewJump.length)
+        ? { ...scene, blocks: [...injected, ...previewJump, ...scene.blocks] }
         : scene
     )),
   };
@@ -197,6 +273,7 @@ export function projectForWebGalPreview(project: StoryProject, sceneId: string):
 export async function prepareWebGalPreview(
   project: StoryProject,
   sceneId: string,
+  options: { startBlockId?: string } = {},
 ): Promise<PreparedWebGalPreview> {
   if (!("serviceWorker" in navigator) || !("caches" in window) || !window.isSecureContext) {
     throw new Error("当前环境不支持 WebGAL 实机预览；正式 HTTPS 版本可用");
@@ -210,7 +287,7 @@ export async function prepareWebGalPreview(
 
   const sessionId = crypto.randomUUID();
   const base = new URL(`${PREVIEW_SESSION_PREFIX}${sessionId}/`, window.location.origin);
-  const targetProject = projectForWebGalPreview(project, sceneId);
+  const targetProject = projectForWebGalPreview(project, sceneId, options.startBlockId);
   const compiled = compileProject(targetProject, { previewMode: true });
   const cache = await caches.open(PREVIEW_CACHE);
   await removeOldSessions(cache, base.href);

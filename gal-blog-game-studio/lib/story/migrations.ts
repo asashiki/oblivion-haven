@@ -1,4 +1,7 @@
 import { figureShotFromTransform, recommendedFigureTransform } from "./figureFraming";
+import { migrateSimpleChoiceGroups } from "./choiceGroups";
+import { routeEdgeWouldCross } from "./routeGeometry";
+import { layoutRoutesTopDown } from "./routeLayout";
 import type { StageTransform, StoryAsset, StoryProject } from "./types";
 
 const LEGACY_PRESETS = [
@@ -70,5 +73,19 @@ export function migrateWebGalFigureFraming(project: StoryProject): StoryProject 
           : block
       )),
     })),
+  };
+}
+
+/** Apply every lossless/simple-editor compatibility migration on project load. */
+export function migrateStoryProject(project: StoryProject): StoryProject {
+  const migrated = migrateSimpleChoiceGroups(migrateWebGalFigureFraming(project));
+  if (!migrated.routeMap.edges.some((edge) => routeEdgeWouldCross(migrated, edge))) return migrated;
+  return {
+    ...migrated,
+    routeMap: {
+      ...migrated.routeMap,
+      layoutDirection: "top-down",
+      nodes: layoutRoutesTopDown(migrated.routeMap.nodes, migrated.routeMap.edges),
+    },
   };
 }

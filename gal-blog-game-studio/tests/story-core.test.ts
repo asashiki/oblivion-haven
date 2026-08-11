@@ -20,8 +20,10 @@ import {
 import { generatedAcceptanceProject } from "../lib/story/generatedAcceptance";
 import { applySceneFigureLayout, recommendedFigureTransform, webgalFigureBaseLayout } from "../lib/story/figureFraming";
 import { importStoryText } from "../lib/story/importers";
+import { migrateStoryProject } from "../lib/story/migrations";
 import { applyPatches } from "../lib/story/patch";
 import { layoutRoutesTopDown, routeDisplayPosition, routeStoredPosition } from "../lib/story/routeLayout";
+import { movingRouteNodeWouldCross, routeEdgeWouldCross } from "../lib/story/routeGeometry";
 import {
   choiceEnabled,
   chooseRuntime,
@@ -291,7 +293,13 @@ test("WebGAL 编译覆盖真实素材、内部循环、外部路线与共享引�
   assert.match(index, /index-Dch1g2w9\.css/);
   assert.match(index, /html-body__panic-overlay/);
   assert.match(index, /renderPromiseResolve/);
-  assert.match(index, /PRESS SCREEN TO START/);
+  assert.doesNotMatch(index, /PRESS SCREEN TO START/);
+  assert.match(index, /galblog-language-gate/);
+  assert.match(index, /data-lang="2">日本語/);
+  assert.match(index, /data-lang="0">中文/);
+  assert.match(index, /data-lang="1">English/);
+  assert.match(index, /_main_rdjpk_/);
+  assert.match(index, /click\(startButton\)/);
   assert.match(bridge, /stageManager\.subscribe/);
   assert.match(bridge, /player-input/);
   assert.match(bridge, /attachWebGAL/);
@@ -843,7 +851,7 @@ test("导演生成器只使用现有素材并生成局部可玩片段", () => {
   const choice = result.scene.blocks.find((block) => block.type === "choice");
   assert.equal(choice?.type, "choice");
   if (!choice || choice.type !== "choice") return;
-  assert.ok(choice.options.some((option) => option.targetBlockId));
+  assert.ok(choice.options.some((option) => option.targetChoiceGroupId));
   assert.equal(validateProject(result.project).filter((item) => item.severity === "error").length, 0);
   assert.match(compileScene(result.project, result.scene).script, /jumpLabel:__block_/);
 });
@@ -1264,4 +1272,157 @@ test("动态立绘编译为 WebGAL 原生 mouth/eyes 参数并让对白命中 fi
   assert.match(script, /-mouthClose=project-assets\/alice-standard-normal\.png/);
   assert.match(script, /-eyesClose=alice\/eyes-close\.png/);
   assert.match(script, /爱丽丝:测试动嘴。 -figureId=char-alice;/);
+});
+
+test("单句可以覆盖口型与眨眼，不必修改角色的全局差分设置", () => {
+  const project = deepClone(exampleProject);
+  project.assets.push(
+    { id: "mouth_open", kind: "expression", name: "open", path: "alice/open.png", aliases: [] },
+    { id: "mouth_half", kind: "expression", name: "half", path: "alice/half.png", aliases: [] },
+    { id: "eyes_close", kind: "expression", name: "eyes", path: "alice/eyes-close.png", aliases: [] },
+  );
+  const expression = project.characters[0].expressions[0];
+  expression.webgalAnimation = {
+    mouthSync: true,
+    blink: "dynamic",
+    mouthOpenAssetId: "mouth_open",
+    mouthHalfOpenAssetId: "mouth_half",
+    mouthCloseAssetId: expression.assetId,
+    eyesOpenAssetId: expression.assetId,
+    eyesCloseAssetId: "eyes_close",
+  };
+  const scene = project.scenes[0];
+  scene.blocks = [{
+    id: "say_still",
+    type: "dialogue",
+    characterId: project.characters[0].id,
+    expressionId: expression.id,
+    text: "这一句保持静止。",
+    figureAnimation: { mouthSync: "off", blink: "fixed-closed" },
+  }];
+
+  const script = compileScene(project, scene).script;
+  assert.doesNotMatch(script, /-mouthOpen=alice\/open\.png/);
+  assert.match(script, /-mouthOpen=project-assets\/alice-standard-normal\.png/);
+  assert.match(script, /-mouthHalfOpen=project-assets\/alice-standard-normal\.png/);
+  assert.match(script, /-eyesOpen=alice\/eyes-close\.png/);
+  assert.match(script, /-eyesClose=alice\/eyes-close\.png/);
+});
+
+test("普通编辑器迁移会补唯一选项组名称并移除旧场景跳转", () => {
+  const project = deepClone(exampleProject);
+  project.scenes[0].blocks = [{
+    id: "group_source",
+    type: "choice",
+    prompt: "去哪里？",
+    options: [{ id: "option_legacy", label: "前往问题", targetSceneId: "scene_questions" }],
+  }];
+  project.scenes.find((scene) => scene.id === "scene_questions")!.blocks.unshift({
+    id: "group_questions",
+    type: "choice",
+    prompt: "问题菜单",
+    options: [{ id: "option_continue", label: "继续" }],
+  });
+  const migrated = migrateStoryProject(project);
+  const groups = migrated.scenes.flatMap((scene) => scene.blocks.filter((block) => block.type === "choice"));
+  assert.ok(groups.every((group) => group.groupName && group.groupCode));
+  assert.equal(new Set(groups.map((group) => group.groupName)).size, groups.length);
+  const source = migrated.scenes[0].blocks.find((block) => block.id === "group_source");
+  assert.equal(source?.type, "choice");
+  assert.equal(source.type === "choice" ? source.options[0].targetChoiceGroupId : "", "group_questions");
+  assert.equal(source.type === "choice" ? source.options[0].targetSceneId : "unexpected", undefined);
+});
+
+test("重复选项组名称会阻止发布校验", () => {
+  const project = migrateStoryProject(deepClone(exampleProject));
+  const groups = project.scenes.flatMap((scene) => scene.blocks.filter((block) => block.type === "choice"));
+  assert.ok(groups.length >= 2);
+  groups[0].groupName = "重复菜单";
+  groups[1].groupName = "重复菜单";
+  assert.ok(validateProject(project).some((item) => item.code === "CHOICE_GROUP_NAME_DUPLICATED" && item.severity === "error"));
+});
+
+test("试玩可以从指定选项组恢复，而不伪装任意句热更新", () => {
+  const project = migrateStoryProject(deepClone(exampleProject));
+  const scene = project.scenes.find((item) => item.blocks.some((block) => block.type === "choice"))!;
+  const group = scene.blocks.find((block) => block.type === "choice")!;
+  const target = projectForWebGalPreview(project, scene.id, group.id);
+  const script = compileScene(target, target.scenes.find((item) => item.id === scene.id)!).script;
+  assert.match(script, new RegExp(`jumpLabel:__block_${slugify(group.id)}`));
+  assert.match(script, new RegExp(`label:__block_${slugify(group.id)}`));
+});
+
+test("从任意句试玩会先恢复该句之前的背景、BGM 与立绘状态", () => {
+  const project = deepClone(exampleProject);
+  project.assets.push({ id: "preview_bgm", kind: "bgm", name: "preview", path: "preview/theme.ogg", aliases: [] });
+  const scene = project.scenes[0];
+  const character = project.characters[0];
+  const expression = character.expressions[0];
+  const background = project.assets.find((asset) => asset.kind === "background")!;
+  scene.entryStage = undefined;
+  scene.blocks = [
+    { id: "set_bg", type: "stage", action: "set-background", assetId: background.id },
+    { id: "set_bgm", type: "stage", action: "play-bgm", assetId: "preview_bgm" },
+    { id: "enter", type: "stage", action: "enter-character", characterId: character.id, expressionId: expression.id, position: "left" },
+    { id: "target_line", type: "dialogue", characterId: character.id, expressionId: expression.id, text: "从这里开始。" },
+  ];
+
+  const target = projectForWebGalPreview(project, scene.id, "target_line");
+  const script = compileScene(target, target.scenes.find((item) => item.id === scene.id)!).script;
+  const targetLabel = `__block_${slugify("target_line")}`;
+  const jumpIndex = script.indexOf(`jumpLabel:${targetLabel}`);
+  assert.ok(jumpIndex > 0);
+  assert.ok(script.indexOf(`changeBg:${background.path}`) < jumpIndex);
+  assert.ok(script.indexOf("bgm:preview/theme.ogg") < jumpIndex);
+  assert.ok(script.indexOf("changeFigure:project-assets/alice-standard-normal.png -id=char-alice -left") < jumpIndex);
+  assert.match(script, new RegExp(`label:${targetLabel}`));
+  assert.match(script, /爱丽丝:从这里开始。 -figureId=char-alice;/);
+});
+
+test("同角色已在舞台时，重复入场会编译为直接替换", () => {
+  const project = deepClone(exampleProject);
+  const character = project.characters[0];
+  const expression = character.expressions[0];
+  const scene = project.scenes[0];
+  scene.blocks = [
+    { id: "enter_once", type: "stage", action: "enter-character", characterId: character.id, expressionId: expression.id, transition: { name: "enter", durationMs: 500 } },
+    { id: "enter_again", type: "stage", action: "enter-character", characterId: character.id, expressionId: expression.id, position: "left", transition: { name: "enter-from-left", durationMs: 700 } },
+  ];
+  const script = compileScene(project, scene).script;
+  assert.equal((script.match(/setTempAnimation:/g) || []).length, 1);
+  assert.match(script, /changeFigure:project-assets\/alice-standard-normal\.png -id=char-alice -left/);
+});
+
+test("故事地图拒绝新建或拖动后产生交叉的主干线", () => {
+  const project = deepClone(exampleProject);
+  project.routeMap.nodes = [
+    { id: "a", kind: "scene", title: "A", x: 0, y: 0 },
+    { id: "b", kind: "scene", title: "B", x: 300, y: 0 },
+    { id: "c", kind: "scene", title: "C", x: 0, y: 300 },
+    { id: "d", kind: "scene", title: "D", x: 300, y: 300 },
+  ];
+  project.routeMap.edges = [{ id: "a_d", source: "a", target: "d" }];
+  assert.equal(routeEdgeWouldCross(project, { id: "b_c", source: "b", target: "c" }), true);
+  project.routeMap.edges.push({ id: "b_c", source: "b", target: "c" });
+  assert.equal(movingRouteNodeWouldCross(project, project.routeMap.nodes[1]), true);
+});
+
+test("故事地图也拒绝不共享节点的重叠细线", () => {
+  const project = deepClone(exampleProject);
+  project.routeMap.nodes = [
+    { id: "a", kind: "scene", title: "A", x: 0, y: 0 },
+    { id: "b", kind: "scene", title: "B", x: 0, y: 300 },
+    { id: "c", kind: "scene", title: "C", x: 0, y: 100 },
+    { id: "d", kind: "scene", title: "D", x: 0, y: 500 },
+  ];
+  project.routeMap.edges = [{ id: "a_d", source: "a", target: "d" }];
+  assert.equal(routeEdgeWouldCross(project, { id: "c_b", source: "c", target: "b" }), true);
+});
+
+test("打开旧项目时会把已有交叉路线整理为非共享节点不交叉的上下布局", () => {
+  const migrated = migrateStoryProject(deepClone(generatedAcceptanceProject));
+  assert.equal(migrated.routeMap.layoutDirection, "top-down");
+  assert.equal(migrated.routeMap.edges.some((edge) => routeEdgeWouldCross(migrated, edge)), false);
+  const secondLevel = migrated.routeMap.nodes.filter((node) => node.y === Math.min(...migrated.routeMap.nodes.filter((item) => item.y > migrated.routeMap.nodes[0].y).map((item) => item.y)));
+  if (secondLevel.length > 1) assert.ok(Math.abs(secondLevel[0].x - secondLevel[1].x) >= 252);
 });

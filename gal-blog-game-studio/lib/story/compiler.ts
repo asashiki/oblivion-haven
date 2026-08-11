@@ -58,25 +58,43 @@ function resolveExpressionRecord(project: StoryProject, characterId?: string, ex
   return character.expressions.find((item) => item.id === (expressionId || character.defaultExpressionId));
 }
 
-function figureAnimationArgs(project: StoryProject, characterId?: string, expressionId?: string): string {
+function figureAnimationArgs(
+  project: StoryProject,
+  characterId?: string,
+  expressionId?: string,
+  override?: Extract<StoryBlock, { type: "dialogue" }>["figureAnimation"],
+): string {
   const expression = resolveExpressionRecord(project, characterId, expressionId);
   const animation = expression?.webgalAnimation;
   if (!expression || !animation) return "";
   const path = (assetId?: string) => resolveAsset(project, assetId);
+  const base = path(expression.assetId);
   const parts: string[] = [];
-  if (animation.mouthSync) {
+  const mouthSync = override?.mouthSync === "on"
+    ? true
+    : override?.mouthSync === "off" ? false : Boolean(animation.mouthSync);
+  if (mouthSync) {
     const open = path(animation.mouthOpenAssetId);
     const half = path(animation.mouthHalfOpenAssetId);
-    const close = path(animation.mouthCloseAssetId) || resolveAsset(project, expression.assetId);
+    const close = path(animation.mouthCloseAssetId) || base;
     if (open) parts.push(arg(open, "mouthOpen"));
     if (half) parts.push(arg(half, "mouthHalfOpen"));
     if (close) parts.push(arg(close, "mouthClose"));
+  } else if (override?.mouthSync === "off" && base) {
+    parts.push(arg(base, "mouthOpen"), arg(base, "mouthHalfOpen"), arg(base, "mouthClose"));
   }
-  if (animation.blink === "dynamic") {
-    const open = path(animation.eyesOpenAssetId) || resolveAsset(project, expression.assetId);
+  const blink = override?.blink && override.blink !== "inherit" ? override.blink : animation.blink;
+  if (blink === "dynamic") {
+    const open = path(animation.eyesOpenAssetId) || base;
     const close = path(animation.eyesCloseAssetId);
     if (open) parts.push(arg(open, "eyesOpen"));
     if (close) parts.push(arg(close, "eyesClose"));
+  } else if ((blink === "fixed-open" || blink === "none") && base) {
+    const open = path(animation.eyesOpenAssetId) || base;
+    parts.push(arg(open, "eyesOpen"), arg(open, "eyesClose"));
+  } else if (blink === "fixed-closed") {
+    const close = path(animation.eyesCloseAssetId) || base;
+    if (close) parts.push(arg(close, "eyesOpen"), arg(close, "eyesClose"));
   }
   return parts.join("");
 }
@@ -423,7 +441,7 @@ function compileBlock(project: StoryProject, scene: StoryScene, block: StoryBloc
             transition: dialogueEnter,
             duration: block.enter?.durationMs,
             easing: block.enter?.easing,
-            animationArgs: figureAnimationArgs(project, characterId, effectiveExpressionId),
+            animationArgs: figureAnimationArgs(project, characterId, effectiveExpressionId, block.figureAnimation),
             next: true,
           }).map((line) => condition ? line.replace(/;$/, `${condition};`) : line));
         }
@@ -558,6 +576,9 @@ export function compileScene(project: StoryProject, scene: StoryScene): { script
         figureState.delete(block.characterId);
       } else if (block.action === "enter-character" || block.action === "set-expression") {
         const current = figureState.get(block.characterId);
+        if (block.action === "enter-character" && current) {
+          blockToCompile = { ...block, action: "set-expression", transition: undefined };
+        }
         figureState.set(block.characterId, {
           expressionId: block.expressionId || current?.expressionId,
           position: block.position || current?.position,
@@ -567,11 +588,13 @@ export function compileScene(project: StoryProject, scene: StoryScene): { script
     }
     if (block.type === "dialogue" && block.expressionId) {
       const current = figureState.get(block.characterId);
+      const dialogueBlock = current && block.enter ? { ...block, enter: undefined } : block;
       const nextPosition = block.position || current?.position;
       const nextTransformKey = JSON.stringify(block.transform || sceneFigureTransform(scene, block.characterId) || {});
-      if (current?.expressionId === block.expressionId && current.position === nextPosition && current.transformKey === nextTransformKey && !block.choiceReactions?.length) {
-        blockToCompile = { ...block, expressionId: undefined, position: undefined, transform: undefined, enter: undefined };
+      if (current?.expressionId === block.expressionId && current.position === nextPosition && current.transformKey === nextTransformKey && !block.choiceReactions?.length && !block.figureAnimation) {
+        blockToCompile = { ...dialogueBlock, expressionId: undefined, position: undefined, transform: undefined, enter: undefined };
       } else {
+        blockToCompile = dialogueBlock;
         figureState.set(block.characterId, {
           expressionId: block.expressionId,
           position: nextPosition,
@@ -617,8 +640,8 @@ function compileConfig(project: StoryProject): string {
     `Game_name:${project.title};`,
     `Game_key:${project.slug};`,
     `Game_version:${project.version};`,
-    `Language:${project.locale};`,
-    "Enable_Appreciation:true;",
+    "Default_Language:ja;",
+    "Enable_Appreciation:false;",
     "TypingSoundEnabled:false;",
     "Figure_Default_Enter_Duration:350;",
     "Figure_Default_Exit_Duration:350;",
@@ -875,13 +898,7 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
   const engineUrl = project.settings.sharedEngineUrl || "";
   const engineCssUrl = project.settings.sharedEngineCssUrl || "";
   const previewMode = Boolean(options.previewMode);
-  const landingMarkup = previewMode
-    ? `<div class="html-body__title-enter" aria-hidden="true"></div>`
-    : `<div class="html-body__title-enter">
-    <button id="galblog-enter" type="button">PRESS SCREEN TO START</button>
-  </div>`;
-  const entryScript = previewMode
-    ? `
+  const entryScript = `
       const click = (target) => target?.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
       const waitFor = (resolveTarget, timeoutMs = 8000) => new Promise((resolve, reject) => {
         const startedAt = Date.now();
@@ -903,31 +920,15 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
             return className.includes("_Title_button_") && parentClass.includes("_Title_buttonList_");
           }));
           click(startButton);
-          landing?.remove();
-          window.parent?.postMessage({
+          ${previewMode ? `window.parent?.postMessage({
             channel: ${JSON.stringify(project.settings.blogBridge.channel)},
             type: "webgal-preview-started",
             sceneId: ${JSON.stringify(project.settings.startSceneId)}
-          }, "*");
+          }, "*");` : ""}
         })
         .catch((error) => {
           if (status) status.textContent = "WEBGAL PREVIEW START ERROR · " + (error instanceof Error ? error.message : String(error));
-        });`
-    : `
-      let entered = false;
-      const enteredPromise = new Promise((resolve) => {
-        enter?.addEventListener("click", () => {
-          if (entered) return;
-          entered = true;
-          landing?.classList.add("is-leaving");
-          setTimeout(() => landing?.remove(), 700);
-          resolve();
-        });
-      });
-      Promise.all([window.__GAL_BLOG_ENGINE_RENDERED__, enteredPromise]).then(() => {
-        const target = document.querySelector(".title__enter-game-target");
-        target?.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
-      });`;
+        });`;
   return `<!doctype html>
 <html lang="${project.locale}">
 <head>
@@ -938,13 +939,15 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
     html,body{width:100%;height:100%;margin:0;background:#05060b;color:#fff;overflow:hidden}
     #ebg{position:fixed;inset:-8%;background:radial-gradient(circle at 50% 45%,#22263a 0,#090b13 45%,#030408 100%);filter:blur(36px)}
     #ebgOverlay{width:100%;height:100%;background:#03040880}
-    #root,.html-body__title-enter{position:absolute;width:2560px;height:1440px;transform-origin:top left;overflow:hidden}
-    .html-body__title-enter{z-index:100;display:grid;place-items:center;background:linear-gradient(135deg,#111525 0%,#070910 68%);transition:opacity .65s ease}
-    .html-body__title-enter.is-leaving{opacity:0;pointer-events:none}
-    #galblog-enter{border:1px solid #ffffff42;border-radius:999px;padding:18px 34px;background:#ffffff0c;color:#f5f7ff;font:500 20px/1.2 ui-serif,Georgia,serif;letter-spacing:.28em;cursor:pointer;box-shadow:0 16px 70px #0008;transition:background .2s,border-color .2s}
-    #galblog-enter:hover{background:#ffffff16;border-color:#ffffff70}
-    #galblog-engine-status{position:absolute;left:50%;bottom:84px;z-index:101;transform:translateX(-50%);font:500 13px system-ui;letter-spacing:.18em;color:#a9b5d5}
-    ${previewMode ? `.html-body__title-enter,[class*="_Title_main_"]{opacity:0!important;pointer-events:none!important}` : ""}
+    #root{position:absolute;width:2560px;height:1440px;transform-origin:top left;overflow:hidden}
+    [class*="_Title_main_"],[class*="_main_rdjpk_"],[class*="_trans_1oupq_"]{display:none!important}
+    #galblog-language-gate{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:#05060b;color:#fff;font-family:system-ui,sans-serif}
+    #galblog-language-gate[hidden]{display:none}
+    #galblog-language-gate>div{display:flex;gap:8px;padding:8px;border:1px solid #ffffff1f;border-radius:16px;background:#ffffff0a;box-shadow:0 20px 80px #0008}
+    #galblog-language-gate button{min-width:96px;border:0;border-radius:11px;padding:12px 16px;background:transparent;color:#d9dce7;font:600 14px system-ui;cursor:pointer}
+    #galblog-language-gate button:first-child,#galblog-language-gate button:hover{background:#fff;color:#171922}
+    #galblog-engine-status{position:absolute;left:50%;top:50%;z-index:101;width:18px;height:18px;border:2px solid #ffffff26;border-top-color:#fff;border-radius:50%;transform:translate(-50%,-50%);animation:galblog-spin .8s linear infinite;font-size:0}
+    @keyframes galblog-spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
   </style>
   ${engineCssUrl ? `<link rel="stylesheet" crossorigin href="${engineCssUrl.replace(/["<>&]/g, "")}" />` : ""}
   <script>
@@ -962,23 +965,32 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
 </head>
 <body>
   <div id="ebg" aria-hidden="true"><div id="ebgOverlay"></div></div>
-  ${landingMarkup}
+  <div id="galblog-language-gate" hidden><div><button type="button" data-lang="2">日本語</button><button type="button" data-lang="0">中文</button><button type="button" data-lang="1">English</button></div></div>
   <div id="html-body__panic-overlay"></div>
   <div id="root"></div>
-  <div id="galblog-engine-status">WEBGAL ${project.settings.webgalVersion} · LOADING</div>
+  <div id="galblog-engine-status" aria-label="正在加载"></div>
   <script>
     (() => {
       const root = document.getElementById("root");
-      const landing = document.querySelector(".html-body__title-enter");
-      const enter = document.getElementById("galblog-enter");
       const status = document.getElementById("galblog-engine-status");
+      const languageGate = document.getElementById("galblog-language-gate");
+      window.__GAL_BLOG_LANGUAGE_READY__ = (() => {
+        const saved = window.localStorage.getItem("lang");
+        if (["0", "1", "2"].includes(saved || "")) return Promise.resolve(saved);
+        languageGate.hidden = false;
+        return new Promise((resolve) => languageGate.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
+          const language = button.dataset.lang || "2";
+          window.localStorage.setItem("lang", language);
+          languageGate.remove();
+          resolve(language);
+        }, { once: true })));
+      })();
       const resize = () => {
         const scale = Math.min(window.innerWidth / 2560, window.innerHeight / 1440);
         const left = (window.innerWidth - 2560 * scale) / 2;
         const top = (window.innerHeight - 1440 * scale) / 2;
         const transform = \`translate(\${left}px,\${top}px) scale(\${scale})\`;
         if (root) root.style.transform = transform;
-        if (landing) landing.style.transform = transform;
       };
       ${entryScript}
       resize();
@@ -989,6 +1001,7 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
     const engineUrl = ${JSON.stringify(engineUrl).replace(/</g, "\\u003c")};
     const status = document.getElementById("galblog-engine-status");
     try {
+      await window.__GAL_BLOG_LANGUAGE_READY__;
       if (!engineUrl) throw new Error("No sharedEngineUrl configured. Copy the official WebGAL dist into this package.");
       const engineModule = await import(engineUrl);
       const core = engineModule.W || engineModule.WebGAL || window.WebGAL || window.__WEBGAL__;

@@ -68,7 +68,7 @@ import type {
 } from "@/lib/story/types";
 import { createId, deepClone, downloadBlob, nowIso } from "@/lib/story/utils";
 import { routeDisplayPosition, routeStoredPosition } from "@/lib/story/routeLayout";
-import { migrateWebGalFigureFraming } from "@/lib/story/migrations";
+import { migrateStoryProject } from "@/lib/story/migrations";
 import { TerreClient } from "@/lib/integrations/terre";
 
 type View = "story" | "map" | "assets" | "ai" | "preview" | "diagnostics" | "export" | "settings";
@@ -88,12 +88,12 @@ const navItems: Array<{ id: View; label: string; icon: typeof Layers3 }> = [
 ];
 
 function loadInitialProject(): StoryProject {
-  if (typeof window === "undefined") return deepClone(generatedAcceptanceProject);
+  if (typeof window === "undefined") return migrateStoryProject(deepClone(generatedAcceptanceProject));
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return migrateWebGalFigureFraming(saved ? parseStoryProject(JSON.parse(saved)) : deepClone(generatedAcceptanceProject));
+    return migrateStoryProject(saved ? parseStoryProject(JSON.parse(saved)) : deepClone(generatedAcceptanceProject));
   } catch {
-    return migrateWebGalFigureFraming(deepClone(generatedAcceptanceProject));
+    return migrateStoryProject(deepClone(generatedAcceptanceProject));
   }
 }
 
@@ -816,7 +816,7 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const loaded = parseStoryProject(JSON.parse(await file.text()));
+      const loaded = migrateStoryProject(parseStoryProject(JSON.parse(await file.text())));
       setPast((items) => [...items, { project: deepClone(project), label: "打开外部 Story JSON", actor: "import", timestamp: nowIso() }]);
       setFuture([]);
       setProject(loaded);
@@ -833,7 +833,6 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
       <SimpleStudio
         project={project}
         selectedSceneId={selectedSceneId}
-        diagnostics={diagnostics}
         savedAt={savedAt}
         canUndo={past.length > 0}
         canRedo={future.length > 0}
@@ -841,10 +840,6 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
         onChange={commit}
         onUndo={undo}
         onRedo={redo}
-        onAdvanced={(targetView) => {
-          if (targetView) setView(targetView);
-          setExperienceMode("advanced");
-        }}
       />
     );
   }
@@ -865,7 +860,7 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
                 <div className="project-switcher__menu">
                   <span>PROJECT ACTIONS</span>
                   <button onClick={() => {
-                    const restored = deepClone(generatedAcceptanceProject);
+                    const restored = migrateStoryProject(deepClone(generatedAcceptanceProject));
                     commit(restored, "恢复 AI 工具验收项目", "system");
                     setSelectedSceneId(restored.settings.startSceneId);
                     setView("story");
@@ -876,7 +871,7 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
                       try {
                         const saved = window.localStorage.getItem(LEGACY_STORAGE_KEY);
                         if (!saved) return;
-                        const restored = parseStoryProject(JSON.parse(saved));
+                        const restored = migrateStoryProject(parseStoryProject(JSON.parse(saved)));
                         commit(restored, "恢复上一版本地项目", "system");
                         setSelectedSceneId(restored.settings.startSceneId);
                         setView("story");
