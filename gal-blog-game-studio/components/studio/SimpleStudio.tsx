@@ -94,7 +94,7 @@ import {
 } from "@/lib/story/figureFraming";
 import { readLocalAssetFile, removeLocalAssetFile, saveLocalAssetFile } from "@/lib/localAssetStore";
 import { routeDisplayPosition, routeStoredPosition } from "@/lib/story/routeLayout";
-import { routeEdgeWouldCross } from "@/lib/story/routeGeometry";
+import { buildChapterMapClusters, routePositionFromChapterMap } from "@/lib/story/chapterMapLayout";
 import type {
   AssetKind,
   RouteEdge,
@@ -137,6 +137,10 @@ type SimpleRouteNodeData = {
 type SimpleChapterNodeData = {
   chapter: StoryChapter;
   index: number;
+};
+
+type SimpleChapterGroupData = {
+  chapterId: string;
 };
 
 const assetKindLabels: Record<AssetKind, string> = {
@@ -283,11 +287,20 @@ const SimpleChapterNode = memo(function SimpleChapterNode({ data }: NodeProps<No
     <div className="simple-chapter-node">
       <span>CHAPTER {String(data.index + 1).padStart(2, "0")}</span>
       <strong>{data.chapter.name}</strong>
+      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   );
 });
 
-const simpleNodeTypes = { simpleRoute: SimpleRouteNode, simpleChapter: SimpleChapterNode };
+const SimpleChapterGroup = memo(function SimpleChapterGroup({ data }: NodeProps<Node<SimpleChapterGroupData>>) {
+  return <div className="simple-chapter-group" data-chapter-id={data.chapterId} />;
+});
+
+const simpleNodeTypes = {
+  simpleRoute: SimpleRouteNode,
+  simpleChapter: SimpleChapterNode,
+  simpleChapterGroup: SimpleChapterGroup,
+};
 
 function StudioGuideAssistant({
   project,
@@ -388,7 +401,6 @@ function StoryWorkspace({
   const [chapterId, setChapterId] = useState("all");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [recordDraft, setRecordDraft] = useState("");
-  const [mapNotice, setMapNotice] = useState("");
   const storyPane = useResizablePane("gal-story-inspector-width", 470, 360, 720);
   const selectedScene = project.scenes.find((scene) => scene.id === selectedSceneId) || project.scenes[0];
 
@@ -404,43 +416,51 @@ function StoryWorkspace({
   }), [chapterSceneIds, playerView, project.routeMap.nodes]);
   const visibleRouteIds = useMemo(() => new Set(visibleRoutes.map((route) => route.id)), [visibleRoutes]);
   const visibleChapters = useMemo(() => project.chapters.filter((chapter) => chapterId === "all" || chapter.id === chapterId), [chapterId, project.chapters]);
+  const chapterClusters = useMemo(
+    () => buildChapterMapClusters(project, visibleChapters.map((chapter) => chapter.id)),
+    [project, visibleChapters],
+  );
 
-  const projectNodes = useMemo<Node<SimpleRouteNodeData | SimpleChapterNodeData>[]>(() => {
-    const result: Node<SimpleRouteNodeData | SimpleChapterNodeData>[] = [];
-    let chapterY = 36;
-    visibleChapters.forEach((chapter) => {
+  const projectNodes = useMemo<Node<SimpleRouteNodeData | SimpleChapterNodeData | SimpleChapterGroupData>[]>(() => {
+    const result: Node<SimpleRouteNodeData | SimpleChapterNodeData | SimpleChapterGroupData>[] = [];
+    chapterClusters.forEach((cluster) => {
+      const chapter = visibleChapters.find((item) => item.id === cluster.chapterId);
+      if (!chapter) return;
       const chapterRoutes = visibleRoutes.filter((route) => route.sceneId && chapter.sceneIds.includes(route.sceneId));
-      const displayPositions = chapterRoutes.map((route) => routeDisplayPosition(route, project.routeMap.layoutDirection));
-      const minX = Math.min(0, ...displayPositions.map((position) => position.x));
-      const maxX = Math.max(320, ...displayPositions.map((position) => position.x));
-      const minY = Math.min(0, ...displayPositions.map((position) => position.y));
-      const maxY = Math.max(120, ...displayPositions.map((position) => position.y));
-      const width = Math.max(720, maxX - minX + 340);
-      const height = Math.max(300, maxY - minY + 230);
-      const parentId = `chapter:${chapter.id}`;
       result.push({
-        id: parentId,
-        type: "simpleChapter",
-        position: { x: 48, y: chapterY },
-        data: { chapter, index: project.chapters.findIndex((item) => item.id === chapter.id) },
+        id: `chapter-group:${chapter.id}`,
+        type: "simpleChapterGroup",
+        position: { x: cluster.background.x, y: cluster.background.y },
+        data: { chapterId: chapter.id },
         draggable: false,
         selectable: false,
         deletable: false,
-        style: { width, height },
-        zIndex: 0,
+        focusable: false,
+        style: { width: cluster.background.width, height: cluster.background.height },
+        zIndex: -1,
+      });
+      result.push({
+        id: `chapter-card:${chapter.id}`,
+        type: "simpleChapter",
+        position: { x: cluster.card.x, y: cluster.card.y },
+        data: { chapter, index: project.chapters.findIndex((item) => item.id === chapter.id) },
+        draggable: false,
+        selectable: true,
+        deletable: false,
+        style: { width: cluster.card.width, height: cluster.card.height },
+        zIndex: 2,
       });
       chapterRoutes.forEach((route) => {
         const scene = project.scenes.find((item) => item.id === route.sceneId);
-        const position = routeDisplayPosition(route, project.routeMap.layoutDirection);
+        const position = cluster.routePositions[route.id];
+        if (!position) return;
         result.push({
           id: route.id,
           type: "simpleRoute",
-          parentId,
-          extent: "parent",
-          position: { x: position.x - minX + 44, y: position.y - minY + 90 },
+          position,
           selected: route.sceneId === selectedScene?.id,
           deletable: false,
-          draggable: false,
+          draggable: true,
           ariaLabel: route.title,
           zIndex: 2,
           data: {
@@ -455,17 +475,17 @@ function StoryWorkspace({
           },
         });
       });
-      chapterY += height + 72;
     });
     return result;
-  }, [onOpenPreview, onSelectScene, playerView, project.chapters, project.routeMap.layoutDirection, project.scenes, selectedScene?.id, visibleChapters, visibleRoutes]);
+  }, [chapterClusters, onOpenPreview, onSelectScene, playerView, project.chapters, project.scenes, selectedScene?.id, visibleChapters, visibleRoutes]);
   const [nodes, setNodes, onNodesChange] = useNodesState(projectNodes);
 
   useEffect(() => {
     setNodes(projectNodes);
   }, [projectNodes, setNodes]);
 
-  const edges = useMemo<Edge[]>(() => project.routeMap.edges
+  const edges = useMemo<Edge[]>(() => {
+    const routeEdges: Edge[] = project.routeMap.edges
     .filter((edge) => visibleRouteIds.has(edge.source) && visibleRouteIds.has(edge.target) && (!playerView || !edge.hiddenFromPlayer))
     .map((edge) => {
       const reciprocal = project.routeMap.edges.some((candidate) => candidate.source === edge.target && candidate.target === edge.source);
@@ -474,7 +494,7 @@ function StoryWorkspace({
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        type: reciprocal ? "smoothstep" : "straight",
+        type: reciprocal ? "smoothstep" : undefined,
         pathOptions: reciprocal ? {
           offset: edge.source.localeCompare(edge.target) < 0 ? 34 : 68,
           stepPosition: edge.source.localeCompare(edge.target) < 0 ? 0.35 : 0.65,
@@ -492,20 +512,44 @@ function StoryWorkspace({
         labelBgPadding: [5, 3] as [number, number],
         labelBgBorderRadius: 8,
       };
-    }), [playerView, project.routeMap.edges, selectedEdgeId, visibleRouteIds]);
+    });
+    const chapterEdges: Edge[] = chapterClusters.flatMap((cluster) => cluster.entryRouteIds.map((routeId) => ({
+      id: `chapter-entry:${cluster.chapterId}:${routeId}`,
+      source: `chapter-card:${cluster.chapterId}`,
+      target: routeId,
+      type: "smoothstep",
+      selectable: false,
+      focusable: false,
+      deletable: false,
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#8173c9" },
+      style: { stroke: "#8173c9", strokeWidth: 2.2 },
+      zIndex: 1,
+    })));
+    return [...chapterEdges, ...routeEdges];
+  }, [chapterClusters, playerView, project.routeMap.edges, selectedEdgeId, visibleRouteIds]);
   const selectedEdge = project.routeMap.edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeSource = project.routeMap.nodes.find((node) => node.id === selectedEdge?.source);
   const selectedEdgeTarget = project.routeMap.nodes.find((node) => node.id === selectedEdge?.target);
+
+  const updateNodePosition = (routeId: string, position: { x: number; y: number }) => {
+    const route = project.routeMap.nodes.find((node) => node.id === routeId);
+    const scene = project.scenes.find((item) => item.id === route?.sceneId);
+    const cluster = chapterClusters.find((item) => item.chapterId === scene?.chapterId);
+    if (!route || !cluster) return;
+    const stored = routePositionFromChapterMap(position, cluster, project.routeMap.layoutDirection);
+    onChange({
+      ...project,
+      routeMap: {
+        ...project.routeMap,
+        nodes: project.routeMap.nodes.map((node) => node.id === routeId ? { ...node, ...stored } : node),
+      },
+    }, "移动剧情片段");
+  };
 
   const connect = (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
     if (project.routeMap.edges.some((edge) => edge.source === connection.source && edge.target === connection.target)) return;
     const edge: RouteEdge = { id: createId("edge"), source: connection.source, target: connection.target, label: "继续" };
-    if (routeEdgeWouldCross(project, edge)) {
-      setMapNotice("这条连接会与现有主干线交叉，因此没有创建。调整片段位置后再连接即可。");
-      return;
-    }
-    setMapNotice("");
     onChange(linkRouteEdge(project, edge), "连接剧情片段");
     setSelectedEdgeId(edge.id);
   };
@@ -696,31 +740,36 @@ function StoryWorkspace({
             onNodesChange={onNodesChange}
             defaultViewport={{ x: 0, y: 0, zoom: 0.92 }}
             fitView
-            fitViewOptions={{ padding: 0.08, minZoom: 0.35, maxZoom: 1 }}
+            fitViewOptions={{ padding: 0.12, minZoom: 0.35, maxZoom: 1.05 }}
             minZoom={0.35}
             maxZoom={1.5}
             nodeDragThreshold={1}
-            nodesDraggable={false}
+            nodesDraggable={!playerView}
             nodesConnectable={!playerView}
             elementsSelectable
             edgesFocusable={!playerView}
             deleteKeyCode={playerView ? null : ["Backspace", "Delete"]}
             elevateNodesOnSelect={false}
+            panOnDrag
             panOnScroll
             zoomOnScroll={false}
             zoomOnDoubleClick={false}
             proOptions={{ hideAttribution: true }}
             onConnect={connect}
             onNodeClick={(_, node) => {
-              if (node.id.startsWith("chapter:")) {
-                setChapterId(node.id.slice("chapter:".length));
+              if (node.id.startsWith("chapter-card:")) {
+                setChapterId(node.id.slice("chapter-card:".length));
                 return;
               }
               const sceneId = project.routeMap.nodes.find((route) => route.id === node.id)?.sceneId;
               if (sceneId) onSelectScene(sceneId);
               setSelectedEdgeId(undefined);
             }}
+            onNodeDragStop={(_, node) => {
+              if (node.type === "simpleRoute") updateNodePosition(node.id, node.position);
+            }}
             onEdgeClick={(event, edge) => {
+              if (edge.id.startsWith("chapter-entry:")) return;
               event.stopPropagation();
               setSelectedEdgeId(edge.id);
             }}
@@ -730,7 +779,6 @@ function StoryWorkspace({
             <Background variant={BackgroundVariant.Dots} gap={26} size={1.2} color="#ded9ea" />
             <Controls showInteractive={false} position="bottom-left" />
           </ReactFlow>
-          {mapNotice && <div className="simple-map-notice" role="status"><GitBranch size={13} />{mapNotice}<button onClick={() => setMapNotice("")}><X size={12} /></button></div>}
         </section>
 
         <SplitGrip onPointerDown={(event) => storyPane.startResize(event, "right")} label="拖动调整地图与片段编辑区宽度" />

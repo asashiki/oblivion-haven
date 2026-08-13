@@ -3789,7 +3789,7 @@ body:has(.simple-studio) { min-width: 0; }
 .runtime-export-dialog > footer { justify-content: space-between; gap: 16px; padding-top: 2px; }
 .runtime-export-dialog > footer > button { height: 34px; padding: 0 16px; font-size: 11px; font-weight: 700; }
 
-/* v20 — chapter-first map and working line editor */
+/* v21 — draggable chapter map with a distinct chapter spine */
 .simple-story { gap: 0; }
 .simple-story-toolbar { margin-top: 12px; }
 .simple-story-layout { margin-top: 10px; }
@@ -3800,58 +3800,81 @@ body:has(.simple-studio) { min-width: 0; }
   background: #f7f6f4;
   box-shadow: none;
 }
-.simple-map-panel .react-flow__background { opacity: .5; }
-.react-flow__node-simpleChapter { overflow: visible; }
+.simple-map-panel .react-flow__background { opacity: .64; }
+.react-flow__node-simpleChapter,
+.react-flow__node-simpleChapterGroup { overflow: visible; }
+.react-flow__node-simpleChapterGroup {
+  pointer-events: none;
+}
+.simple-chapter-group {
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(198, 193, 207, .72);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .58);
+  box-shadow: 0 14px 42px rgba(42, 36, 55, .045);
+}
 .simple-chapter-node {
   width: 100%;
   height: 100%;
-  padding: 22px 24px;
-  border: 1px solid #d8d6dc;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, .96);
-  color: #333039;
-  box-shadow: 0 12px 35px rgba(45, 40, 54, .06);
+  padding: 22px 24px 20px 28px;
+  border: 1px solid #5f557e;
+  border-left: 7px solid #7768c7;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff 0%, #f4f1fb 100%);
+  color: #312d3a;
+  box-shadow: 0 14px 32px rgba(57, 46, 87, .14);
+  cursor: pointer;
+  transition: box-shadow 150ms ease, transform 150ms ease;
 }
-.simple-chapter-node::after {
-  position: absolute;
-  top: 68px;
-  right: 24px;
-  left: 24px;
-  height: 1px;
-  background: #e9e7eb;
-  content: "";
+.simple-chapter-node:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 38px rgba(57, 46, 87, .19);
 }
 .simple-chapter-node > span {
   display: block;
-  color: #8f8996;
+  color: #786ea0;
   font: 700 10px/1.2 var(--font-mono);
-  letter-spacing: .12em;
+  letter-spacing: .14em;
 }
 .simple-chapter-node > strong {
   display: block;
-  margin-top: 6px;
-  font: 650 18px/1.25 "Noto Serif SC", "Songti SC", Georgia, serif;
+  margin-top: 9px;
+  overflow: hidden;
+  font: 680 20px/1.25 "Noto Serif SC", "Songti SC", Georgia, serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.simple-chapter-node .react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border: 3px solid #f7f5fb;
+  background: #7768c7;
 }
 .react-flow__node-simpleRoute { width: 224px; }
 .simple-route-node {
   width: 224px;
   min-height: 94px;
-  border: 1px solid #d9d6de;
-  border-left: 4px solid var(--route-accent);
-  border-top-width: 1px;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 5px 16px rgba(42, 37, 50, .07);
-  cursor: default;
+  border: 1px solid #d7d2de;
+  border-top: 3px solid var(--route-accent);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 7px 19px rgba(42, 37, 50, .085);
+  cursor: grab;
 }
 .simple-route-node:hover,
 .simple-route-node.is-selected {
-  transform: none;
+  transform: translateY(-2px);
   border-color: #bcb7c5;
-  border-left-color: var(--route-accent);
-  box-shadow: 0 8px 22px rgba(45, 39, 55, .1);
+  border-top-color: var(--route-accent);
+  box-shadow: 0 11px 26px rgba(45, 39, 55, .14);
 }
 .simple-route-node.is-selected { outline: 3px solid rgba(112, 94, 185, .12); }
+.react-flow__node.dragging .simple-route-node {
+  cursor: grabbing;
+  transform: none;
+  box-shadow: 0 17px 36px rgba(57, 46, 87, .2);
+}
 .simple-route-node__meta {
   min-height: 30px;
   padding: 8px 10px 2px;
@@ -3877,15 +3900,23 @@ body:has(.simple-studio) { min-width: 0; }
   font-size: 9px;
 }
 .simple-route-node .react-flow__handle {
-  width: 8px;
-  height: 8px;
-  border-color: #f7f6f4;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  background: var(--route-accent);
 }
 .simple-map-panel .react-flow__controls {
   overflow: hidden;
   border: 1px solid #dedbe2;
   border-radius: 9px;
   box-shadow: none;
+}
+.simple-map-panel .react-flow__edge-path {
+  transition: stroke 120ms ease, stroke-width 120ms ease;
+}
+.simple-map-panel .react-flow__edge:hover .react-flow__edge-path {
+  stroke: #6f61bd;
+  stroke-width: 2.7px;
 }
 .simple-scene-panel {
   border-radius: 14px;

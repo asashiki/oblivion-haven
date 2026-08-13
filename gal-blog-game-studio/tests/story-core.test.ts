@@ -23,6 +23,7 @@ import { importStoryText } from "../lib/story/importers";
 import { migrateStoryProject } from "../lib/story/migrations";
 import { applyPatches } from "../lib/story/patch";
 import { layoutRoutesTopDown, routeDisplayPosition, routeStoredPosition } from "../lib/story/routeLayout";
+import { buildChapterMapClusters, routePositionFromChapterMap } from "../lib/story/chapterMapLayout";
 import { movingRouteNodeWouldCross, routeEdgeWouldCross } from "../lib/story/routeGeometry";
 import {
   choiceEnabled,
@@ -385,6 +386,21 @@ test("叙事地图自动形成竖向主轴和横向分支，并兼容旧版横�
 
   assert.deepEqual(routeDisplayPosition({ ...nodes[0], x: 40, y: 210 }, undefined), { x: 210, y: 40 });
   assert.deepEqual(routeStoredPosition({ x: 210, y: 40 }, undefined), { x: 40, y: 210 });
+});
+
+test("章节地图把章节主卡与分支片段分层，并保持拖动坐标可逆", () => {
+  const project = deepClone(exampleProject);
+  const chapter = project.chapters[0];
+  const cluster = buildChapterMapClusters(project, [chapter.id])[0];
+  const route = project.routeMap.nodes.find((node) => node.sceneId === chapter.sceneIds[0])!;
+  const display = cluster.routePositions[route.id];
+  assert.ok(cluster.card.y < display.y);
+  assert.ok(cluster.entryRouteIds.length >= 1);
+  assert.equal(cluster.background.x <= cluster.card.x, true);
+  assert.deepEqual(
+    routePositionFromChapterMap(display, cluster, project.routeMap.layoutDirection),
+    { x: route.x, y: route.y },
+  );
 });
 
 test("故事地图细线可独立删除，删除剧情片段会清理失效引用", () => {
