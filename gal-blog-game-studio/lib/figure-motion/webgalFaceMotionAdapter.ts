@@ -70,9 +70,11 @@ const swapExpression = (stage, key, expressionId, manifest) => {
   });
 };
 export function attach(core, manifest) {
-  const stage = core?.gameplay?.pixiStage || core?.pixiStage || core;
-  if (!stage || stage.__galBlogFaceMotionAttached) return Boolean(stage);
-  stage.__galBlogFaceMotionAttached = true;
+  const resolveStage = () => core?.gameplay?.pixiStage || core?.pixiStage || null;
+  const install = (stage) => {
+    if (!stage) return false;
+    if (stage.__galBlogFaceMotionAttached) return true;
+    stage.__galBlogFaceMotionAttached = true;
   stage.performMouthSyncAnimation = (key, _item, state) => setLayer(stage, key, "mouth", state === "open" ? "open" : state === "half_open" ? "half" : "closed", manifest);
   stage.performBlinkAnimation = (key, _item, state) => setLayer(stage, key, "eyes", state === "closed" ? "closed" : "open", manifest);
   const scheduled = new WeakMap();
@@ -91,8 +93,19 @@ export function attach(core, manifest) {
       }, Math.max(0, cue.atMs));
     }
   };
-  document.addEventListener("play", onPlay, true);
-  globalThis.GalBlogFaceMotion = { stage, manifest };
-  return true;
+    document.addEventListener("play", onPlay, true);
+    globalThis.GalBlogFaceMotion = { stage, manifest };
+    return true;
+  };
+  const stage = resolveStage();
+  if (install(stage)) return true;
+  // WebGAL creates gameplay.pixiStage during its first render.  The adapter
+  // is loaded beside the engine module, so retry briefly instead of silently
+  // missing the stage when initialization is asynchronous.
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    if (install(resolveStage()) || ++attempts > 200) window.clearInterval(timer);
+  }, 50);
+  return false;
 }
 `;
