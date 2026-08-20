@@ -142,6 +142,26 @@
   background: #f5f6fc;
 }
 
+.simple-face-motion-entry {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid #d8d2e7;
+  border-radius: 7px;
+  background: #faf8ff;
+  color: #66549a;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.simple-face-motion-entry:hover {
+  border-color: #a99bc9;
+  background: #f3effc;
+}
+
 .simple-editor-body {
   display: flex;
   min-height: 0;

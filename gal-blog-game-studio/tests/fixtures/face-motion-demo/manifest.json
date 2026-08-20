@@ -1,0 +1,172 @@
+{
+  "schema": "galgame-face-motion/v2",
+  "canvas": {
+    "width": 1024,
+    "height": 1536
+  },
+  "expressions": {
+    "guide": {
+      "label": "说明手势",
+      "base": "expressions/guide-base.png",
+      "sourceSha256": "38e046c8945ee5f271b101b15cb3d1be1f949f06e6237232e15b4abf9f56a3f2",
+      "eyes": {
+        "open": {
+          "file": "parts/guide-eye-open.png",
+          "rect": {
+            "x": 432,
+            "y": 280,
+            "width": 146,
+            "height": 80
+          },
+          "sha256": "8079c6b95be93612a1928e5b1a9fe954f401901380e6f373f4be0c0f4e45da46"
+        },
+        "half": {
+          "file": "parts/guide-eye-half.png",
+          "rect": {
+            "x": 432,
+            "y": 280,
+            "width": 146,
+            "height": 80
+          },
+          "sha256": "69cac1ab31eb8cfc98a324523e7ceae97f6449100cf1b92d699c39930da06074"
+        },
+        "closed": {
+          "file": "parts/guide-eye-closed.png",
+          "rect": {
+            "x": 432,
+            "y": 280,
+            "width": 146,
+            "height": 80
+          },
+          "sha256": "bdac726ec318962ecb7f67beee2c3a4365e755f4f9eb79542b0969d26a4b7b1f"
+        }
+      },
+      "mouth": {
+        "closed": {
+          "file": "parts/guide-mouth-closed.png",
+          "rect": {
+            "x": 458,
+            "y": 360,
+            "width": 72,
+            "height": 30
+          },
+          "sha256": "1abddf4c92868872b5764b1018b0335534d865b9083c8ba0e4ec8e6836bc938f"
+        },
+        "half": {
+          "file": "parts/guide-mouth-half.png",
+          "rect": {
+            "x": 458,
+            "y": 360,
+            "width": 72,
+            "height": 30
+          },
+          "sha256": "a0fbf6aefc0519b70c68985d6361a3545747e4f6a3b5fe4ed9af5d4e0fc3ecd6"
+        },
+        "open": {
+          "file": "parts/guide-mouth-open.png",
+          "rect": {
+            "x": 458,
+            "y": 360,
+            "width": 72,
+            "height": 30
+          },
+          "sha256": "789a5be773173ddd121673da59e31a4389f12dd716ed8dd6aa4381fafdfa6ab5"
+        }
+      }
+    },
+    "welcome": {
+      "label": "迎接姿势",
+      "base": "expressions/welcome-base.png",
+      "sourceSha256": "14a9b1f85ed8d776adac1649a5b68153e74ed3ba31c70e8d24c82c8deb53323d",
+      "eyes": {
+        "open": {
+          "file": "parts/welcome-eye-open.png",
+          "rect": {
+            "x": 408,
+            "y": 286,
+            "width": 186,
+            "height": 104
+          },
+          "sha256": "c17c5dde74eb5f7d2ae4147f358e1eb8b157eb185bbd4346bd33e2e2dd501988"
+        },
+        "half": {
+          "file": "parts/welcome-eye-half.png",
+          "rect": {
+            "x": 408,
+            "y": 286,
+            "width": 186,
+            "height": 104
+          },
+          "sha256": "49bcf21252943642343fcddd9d344f678c3cb16bd1eaa99a3bf801616368896f"
+        },
+        "closed": {
+          "file": "parts/welcome-eye-closed.png",
+          "rect": {
+            "x": 408,
+            "y": 286,
+            "width": 186,
+            "height": 104
+          },
+          "sha256": "81ae6fb36ab50bb43d4ea0f73a1aef8fc8626456b83c2b8fb4585af2ad26e482"
+        }
+      },
+      "mouth": {
+        "closed": {
+          "file": "parts/welcome-mouth-closed.png",
+          "rect": {
+            "x": 474,
+            "y": 391,
+            "width": 76,
+            "height": 44
+          },
+          "sha256": "4f26e4681c016489ca75799f4e7c6b21dc2d9c0b70de1c9154066748505fb000"
+        },
+        "half": {
+          "file": "parts/welcome-mouth-half.png",
+          "rect": {
+            "x": 474,
+            "y": 391,
+            "width": 76,
+            "height": 44
+          },
+          "sha256": "604feaa6b1999e584069103a1a069495e439f92ada7ecb96526a714362444804"
+        },
+        "open": {
+          "file": "parts/welcome-mouth-open.png",
+          "rect": {
+            "x": 474,
+            "y": 391,
+            "width": 76,
+            "height": 44
+          },
+          "sha256": "52d7e43327c3d30abcf50b6200cf3e240157633f00c8d90b9d55776c038f8fde"
+        }
+      }
+    }
+  },
+  "profile": {
+    "mouth": {
+      "windowMs": 24,
+      "noiseFloorPercentile": 0.15,
+      "peakPercentile": 0.92,
+      "attackMs": 45,
+      "releaseMs": 110,
+      "minHoldMs": 80,
+      "closeThreshold": 0.18,
+      "openThreshold": 0.58,
+      "hysteresis": 0.07,
+      "mergeGapMs": 60
+    },
+    "blink": {
+      "minIntervalMs": 2200,
+      "medianIntervalMs": 4300,
+      "maxIntervalMs": 8500,
+      "halfMs": 45,
+      "closedMs": 75,
+      "doubleBlinkChance": 0.08,
+      "phraseBoundaryBias": 0.35,
+      "suppressAroundSwapMs": 250,
+      "seed": 12345
+    }
+  }
+}

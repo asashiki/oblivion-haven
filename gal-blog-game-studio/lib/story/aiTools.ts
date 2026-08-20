@@ -6,6 +6,7 @@ import { validateProject } from "./schema";
 import type {
   ChoiceOption,
   Easing,
+  PerformanceCue,
   StagePosition,
   StageTransform,
   StoryBlock,
@@ -15,6 +16,7 @@ import type {
   VariableOperation,
 } from "./types";
 import { createId, slugify } from "./utils";
+import { validateStagingPlan } from "./staging";
 
 export type AiToolCall = {
   name: (typeof AI_TOOL_CATALOG)[number]["name"];
@@ -199,6 +201,41 @@ function executeMutation(project: StoryProject, call: AiToolCall): StoryPatch[] 
         operations.push({ op: "set", path: `/scenes/${target.scene}/blocks/${target.block}/transform`, value: args.transform });
       }
       return operations;
+    }
+    case "plan_staging": {
+      const target = sceneIndex(project, sceneId!);
+      if (!Array.isArray(args.cues)) throw new Error("plan_staging.cues 必须是数组");
+      const intents = new Set(["hold", "enter", "exit", "expression-change", "pose-change", "listener-react", "micro-emphasis", "micro-recoil", "reframe"]);
+      const timings = new Set(["before-line", "during-line", "after-line"]);
+      const intensities = new Set(["low", "medium", "high"]);
+      const reasons = new Set(["scene-entry", "explicit-physical-action", "emotional-turn", "addressed-listener", "reveal", "punchline", "shock", "scene-exit"]);
+      const cues = (args.cues as Array<Record<string, unknown>>).map((raw): PerformanceCue => {
+        const intent = textArg(raw, "intent")!;
+        const timing = textArg(raw, "timing")!;
+        const intensity = textArg(raw, "intensity")!;
+        const reason = textArg(raw, "reason", false);
+        if (!intents.has(intent)) throw new Error(`不支持的演出意图：${intent}`);
+        if (!timings.has(timing)) throw new Error(`不支持的演出时机：${timing}`);
+        if (!intensities.has(intensity)) throw new Error(`不支持的演出强度：${intensity}`);
+        if (reason && !reasons.has(reason)) throw new Error(`不支持的演出原因：${reason}`);
+        return {
+          id: textArg(raw, "id", false) || createId("cue"),
+          blockId: textArg(raw, "blockId")!,
+          intent: intent as PerformanceCue["intent"],
+          targetCharacterId: textArg(raw, "targetCharacterId", false),
+          timing: timing as PerformanceCue["timing"],
+          intensity: intensity as PerformanceCue["intensity"],
+          reason: reason as PerformanceCue["reason"],
+          expressionId: textArg(raw, "expressionId", false),
+          anchorText: textArg(raw, "anchorText", false),
+          voiceTimeMs: numberArg(raw, "voiceTimeMs"),
+          disabled: raw.disabled === true,
+          source: "ai",
+        };
+      });
+      const candidate = { enabled: args.enabled !== false, cues, revision: (project.scenes[target].staging?.revision || 0) + 1 };
+      const validated = validateStagingPlan(project, project.scenes[target], candidate);
+      return [{ op: "set", path: `/scenes/${target}/staging`, value: validated.plan }];
     }
     case "enter_character":
     case "exit_character":
@@ -410,6 +447,11 @@ export function executeAiTool(project: StoryProject, call: AiToolCall): AiToolRe
   let data: unknown;
 
   if (call.name === "validate_project") data = { diagnostics: validateProject(applied.project) };
+  if (call.name === "plan_staging") {
+    const sceneId = textArg(args, "sceneId")!;
+    const scene = applied.project.scenes.find((item) => item.id === sceneId)!;
+    data = validateStagingPlan(applied.project, scene);
+  }
   if (call.name === "compile_scene") {
     const sceneId = textArg(args, "sceneId")!;
     const scene = applied.project.scenes.find((item) => item.id === sceneId);

@@ -2,6 +2,7 @@ import type {
   CompileResult,
   ChoiceOption,
   InputBlock,
+  PerformanceCue,
   StageBlock,
   StoryAsset,
   StoryBlock,
@@ -19,6 +20,7 @@ import {
   toWebgalVolume,
   WEBGAL_ANIMATION_FILES,
 } from "./performancePresets";
+import { cuePresetName, targetStagePosition, validateStagingPlan } from "./staging";
 
 function arg(value: string | number | undefined, name: string): string {
   if (value === undefined || value === "") return "";
@@ -149,12 +151,20 @@ function compileFigureChange({
   const supportedEntrance = transition === "enter"
     || transition === "enter-from-left"
     || transition === "enter-from-right"
-    || transition === "enter-from-bottom";
+    || transition === "enter-from-bottom"
+    || transition === "soft-enter-left"
+    || transition === "soft-enter-right";
 
   if (!transition || !figureId) {
     return [
       `${base}${arg(duration, "duration")}${arg(easing, "ease")}`
       + `${transformArg(finalTransform, asset)}${next ? " -next" : ""};`,
+    ];
+  }
+  if (transition === "diff-crossfade") {
+    return [
+      `${base}${transformArg(finalTransform, asset)} -duration=0 -next;`,
+      `setAnimation:diff-crossfade${arg(figureId, "target")}${next ? " -next" : ""};`,
     ];
   }
   const entrance = supportedEntrance ? transition : "enter";
@@ -166,21 +176,23 @@ function compileFigureChange({
    */
   const x = finalTransform.x ?? 0;
   const y = finalTransform.y ?? 0;
+  const soft = entrance.startsWith("soft-enter");
+  const offset = soft ? 36 : 90;
   const startTransform = {
     ...finalPayload,
     position: {
-      x: x + (entrance === "enter-from-left" ? -90 : entrance === "enter-from-right" ? 90 : 0),
-      y: y + (entrance === "enter-from-bottom" ? 90 : 0),
+      x: x + (["enter-from-left", "soft-enter-left"].includes(entrance) ? -offset : ["enter-from-right", "soft-enter-right"].includes(entrance) ? offset : 0),
+      y: y + (entrance === "enter-from-bottom" ? offset : 0),
     },
     alpha: 0,
-    ...(entrance === "enter" ? {} : { blur: 5 }),
+    ...(entrance === "enter" || soft ? {} : { blur: 5 }),
   };
   const endTransform = {
     ...finalPayload,
     position: { x, y },
     alpha: finalTransform.alpha ?? 1,
     blur: 0,
-    duration: duration ?? (entrance === "enter" ? 300 : 500),
+    duration: duration ?? (soft ? 360 : entrance === "enter" ? 300 : 500),
     ...(easing ? { ease: easing } : {}),
   };
   const initialPayload = { ...finalPayload, alpha: 0 };
@@ -191,6 +203,82 @@ function compileFigureChange({
       endTransform,
     ])}${arg(figureId, "target")}${next ? " -next" : ""};`,
   ];
+}
+
+function cueMarker(cue: PerformanceCue): string {
+  return `; @performance-cue ${JSON.stringify({
+    id: cue.id,
+    intent: cue.intent,
+    target: cue.targetCharacterId,
+    timing: cue.timing,
+    intensity: cue.intensity,
+    reason: cue.reason,
+    anchorText: cue.anchorText,
+    voiceTimeMs: cue.voiceTimeMs,
+  })}`;
+}
+
+function compileStagingCue(project: StoryProject, scene: StoryScene, cue: PerformanceCue): string[] {
+  const marker = cueMarker(cue);
+  if (cue.intent === "hold" || cue.intent === "reframe") return [marker];
+  const character = resolveCharacter(project, cue.targetCharacterId);
+  const figureId = character ? `char-${slugify(character.name)}` : cue.targetCharacterId;
+  const position = targetStagePosition(scene, cue);
+  const preset = cuePresetName(cue, position);
+  if (!figureId || !preset) return [marker];
+  if (["expression-change", "pose-change", "listener-react"].includes(cue.intent) && cue.expressionId) {
+    const path = resolveExpressionAsset(project, cue.targetCharacterId, cue.expressionId);
+    if (!path) return [marker];
+    return [marker, ...compileFigureChange({
+      expressionPath: path,
+      figureId,
+      position,
+      transform: sceneFigureTransform(scene, cue.targetCharacterId),
+      asset: resolveExpressionAssetRecord(project, cue.targetCharacterId, cue.expressionId),
+      transition: "diff-crossfade",
+      duration: 160,
+      next: true,
+      animationArgs: figureAnimationArgs(project, cue.targetCharacterId, cue.expressionId),
+    })];
+  }
+  if (["micro-emphasis", "micro-recoil"].includes(cue.intent)) {
+    return [marker, `setAnimation:${preset}${arg(figureId, "target")} -next;`];
+  }
+  return [marker];
+}
+
+function cueAppliedByBlock(block: StoryBlock, cue: PerformanceCue): boolean {
+  if (block.type === "stage") {
+    if (cue.intent === "enter" && block.action === "enter-character") return block.characterId === cue.targetCharacterId;
+    if (cue.intent === "exit" && block.action === "exit-character") return block.characterId === cue.targetCharacterId;
+    if (["expression-change", "pose-change", "listener-react"].includes(cue.intent) && block.action === "set-expression") {
+      return block.characterId === cue.targetCharacterId;
+    }
+  }
+  if (block.type === "dialogue" && ["expression-change", "pose-change"].includes(cue.intent)) {
+    return block.characterId === cue.targetCharacterId && Boolean(cue.expressionId || block.expressionId);
+  }
+  return false;
+}
+
+function applyCueToBlock(block: StoryBlock, cue: PerformanceCue): StoryBlock {
+  if (block.type === "stage") {
+    const preset = cuePresetName(cue, block.position || "center");
+    if (!preset) return block;
+    return {
+      ...block,
+      expressionId: cue.expressionId || block.expressionId,
+      transition: { name: preset, durationMs: preset === "diff-crossfade" ? 160 : cue.intent === "exit" ? 340 : 360, easing: "easeOut" },
+    };
+  }
+  if (block.type === "dialogue") {
+    return {
+      ...block,
+      expressionId: cue.expressionId || block.expressionId,
+      enter: { name: "diff-crossfade", durationMs: 160, easing: "easeOut" },
+    };
+  }
+  return block;
 }
 
 function variableName(project: StoryProject, variableId: string): string {
@@ -549,6 +637,14 @@ function compileBlock(project: StoryProject, scene: StoryScene, block: StoryBloc
 
 export function compileScene(project: StoryProject, scene: StoryScene): { script: string; diagnostics: StoryDiagnostic[] } {
   const diagnostics = validateProject(project).filter((diagnostic) => !diagnostic.sceneId || diagnostic.sceneId === scene.id);
+  const staging = validateStagingPlan(project, scene);
+  diagnostics.push(...staging.diagnostics);
+  const cuesByBlock = new Map<string, PerformanceCue[]>();
+  if (scene.staging?.enabled !== false) {
+    staging.plan.cues.filter((cue) => !cue.disabled).forEach((cue) => {
+      cuesByBlock.set(cue.blockId, [...(cuesByBlock.get(cue.blockId) || []), cue]);
+    });
+  }
   const lines = [
     `; Generated by Gal Blog Game Studio from Story IR ${project.schemaVersion}`,
     `; Scene: ${scene.name} (${scene.id})`,
@@ -603,7 +699,20 @@ export function compileScene(project: StoryProject, scene: StoryScene): { script
       }
     }
 
+    const blockCues = cuesByBlock.get(block.id) || [];
+    const leadingCues = blockCues.filter((cue) => cue.timing !== "after-line");
+    const trailingCues = blockCues.filter((cue) => cue.timing === "after-line");
+    leadingCues.forEach((cue) => {
+      if (cueAppliedByBlock(blockToCompile, cue)) {
+        blockToCompile = applyCueToBlock(blockToCompile, cue);
+        lines.push(cueMarker(cue));
+      } else {
+        lines.push(...compileStagingCue(project, scene, cue));
+      }
+    });
+
     lines.push(...compileBlock(project, scene, blockToCompile));
+    trailingCues.forEach((cue) => lines.push(...compileStagingCue(project, scene, cue)));
 
     if (block.type === "stage") {
       if (block.action === "clear-stage") figureState.clear();
