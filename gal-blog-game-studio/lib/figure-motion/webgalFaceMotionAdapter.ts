@@ -41,7 +41,14 @@ const setLayer = (stage, key, region, state, manifest) => {
     layer.texture = texture;
     layer.anchor?.set?.(0.5);
     const canvas = expression.canvas || manifest.canvas || { width: 1024, height: 1536 };
-    layer.position.set(entry.rect.x + entry.rect.width / 2 - canvas.width / 2, entry.rect.y + entry.rect.height / 2 - canvas.height / 2);
+    // WebGAL's figure Sprite is centered on the stage (its local y already
+    // includes stageHeight / 2).  Parts live in the same container, so place
+    // them relative to that Sprite rather than the container's pivot origin.
+    const basePosition = base.position || { x: 0, y: canvas.height / 2 };
+    layer.position.set(
+      basePosition.x + entry.rect.x + entry.rect.width / 2 - canvas.width / 2,
+      basePosition.y + entry.rect.y + entry.rect.height / 2 - canvas.height / 2,
+    );
     layer.scale.set(base.scale.x, base.scale.y);
     layer.rotation = 0; layer.alpha = 1; layer.visible = true;
     stage.requestRender?.();
