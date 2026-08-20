@@ -22,6 +22,7 @@ import { applySceneFigureLayout, recommendedFigureTransform, webgalFigureBaseLay
 import { importStoryText } from "../lib/story/importers";
 import { migrateStoryProject } from "../lib/story/migrations";
 import { applyPatches } from "../lib/story/patch";
+import { validateStagingPlan } from "../lib/story/staging";
 import { layoutRoutesTopDown, routeDisplayPosition, routeStoredPosition } from "../lib/story/routeLayout";
 import { buildChapterMapClusters, routePositionFromChapterMap } from "../lib/story/chapterMapLayout";
 import { movingRouteNodeWouldCross, routeEdgeWouldCross } from "../lib/story/routeGeometry";
@@ -209,7 +210,7 @@ test("发布验收项目由生产 AI 工具链从空章节生成并可完整编�
   const transcript = JSON.parse(
     await readFile("tests/fixtures/generated-acceptance-calls.json", "utf8"),
   ) as Array<{ call: { name: string }; operationCount: number }>;
-  assert.equal(transcript.length, 39);
+  assert.equal(transcript.length, 43);
   assert.equal(transcript[0]?.call.name, "create_scene");
   assert.equal(transcript.at(-1)?.call.name, "connect_branch");
   assert.equal(generatedAcceptanceProject.scenes.length, 4);
@@ -1441,4 +1442,87 @@ test("打开旧项目时会把已有交叉路线整理为非共享节点不交�
   assert.equal(migrated.routeMap.edges.some((edge) => routeEdgeWouldCross(migrated, edge)), false);
   const secondLevel = migrated.routeMap.nodes.filter((node) => node.y === Math.min(...migrated.routeMap.nodes.filter((item) => item.y > migrated.routeMap.nodes[0].y).map((item) => item.y)));
   if (secondLevel.length > 1) assert.ok(Math.abs(secondLevel[0].x - secondLevel[1].x) >= 252);
+});
+
+test("AI 演出计划默认克制：每句一个可见 Cue、四句一个身体动作、台词中必须有锚点", () => {
+  const project = deepClone(exampleProject);
+  const alice = project.characters[0];
+  const listener = {
+    ...deepClone(alice),
+    id: "char_listener",
+    name: "Listener",
+    displayName: "听者",
+    expressions: alice.expressions.map((expression) => ({ ...expression, id: `listener_${expression.id}` })),
+    defaultExpressionId: `listener_${alice.defaultExpressionId}`,
+  };
+  project.characters.push(listener);
+  const scene = project.scenes[0];
+  scene.entryStage = {
+    ...scene.entryStage,
+    figures: [
+      { characterId: alice.id, expressionId: alice.defaultExpressionId, position: "left" },
+      { characterId: listener.id, expressionId: listener.defaultExpressionId, position: "right" },
+    ],
+  };
+  scene.blocks = [
+    { id: "line_1", type: "dialogue", characterId: alice.id, text: "先说第一件事。" },
+    { id: "line_2", type: "dialogue", characterId: alice.id, text: "这句话是对你说的。" },
+    { id: "line_3", type: "dialogue", characterId: listener.id, text: "我听见了。" },
+    { id: "line_4", type: "dialogue", characterId: alice.id, text: "慢慢来。" },
+  ];
+  scene.staging = { enabled: true, cues: [
+    { id: "body_ok", blockId: "line_1", intent: "micro-emphasis", targetCharacterId: alice.id, timing: "before-line", intensity: "low", reason: "emotional-turn" },
+    { id: "listener_ok", blockId: "line_2", intent: "listener-react", targetCharacterId: listener.id, timing: "during-line", intensity: "low", reason: "addressed-listener", anchorText: "对你说" },
+    { id: "same_line_rejected", blockId: "line_2", intent: "micro-recoil", targetCharacterId: listener.id, timing: "before-line", intensity: "low", reason: "shock" },
+    { id: "dense_rejected", blockId: "line_3", intent: "micro-recoil", targetCharacterId: listener.id, timing: "before-line", intensity: "low", reason: "shock" },
+    { id: "anchor_rejected", blockId: "line_4", intent: "listener-react", targetCharacterId: listener.id, timing: "during-line", intensity: "low", reason: "addressed-listener" },
+  ] };
+  const result = validateStagingPlan(project, scene);
+  assert.deepEqual(result.plan.cues.map((cue) => cue.id), ["body_ok", "listener_ok"]);
+  assert.ok(result.diagnostics.some((item) => item.code === "STAGING_ONE_VISIBLE_CUE"));
+  assert.ok(result.diagnostics.some((item) => item.code === "STAGING_DENSITY_LIMIT"));
+  assert.ok(result.diagnostics.some((item) => item.code === "STAGING_ANCHOR_REQUIRED"));
+});
+
+test("演出连续性拒绝重复入场、离场后动作与临时 transform 漂移", () => {
+  const project = deepClone(exampleProject);
+  const scene = project.scenes[0];
+  const character = project.characters[0];
+  project.routeMap.edges = [];
+  scene.blocks = [
+    { id: "line_a", type: "dialogue", characterId: character.id, text: "还在这里。" },
+    { id: "line_b", type: "dialogue", characterId: character.id, text: "先退下了。" },
+    { id: "line_c", type: "narration", text: "门重新合上。" },
+  ];
+  scene.staging = { enabled: true, cues: [
+    { id: "repeat_enter", blockId: "line_a", intent: "enter", targetCharacterId: character.id, timing: "before-line", intensity: "low", reason: "scene-entry" },
+    { id: "exit_ok", blockId: "line_b", intent: "exit", targetCharacterId: character.id, timing: "after-line", intensity: "low", reason: "scene-exit" },
+    { id: "offstage_move", blockId: "line_c", intent: "micro-emphasis", targetCharacterId: character.id, timing: "before-line", intensity: "low", reason: "emotional-turn" },
+  ] };
+  const result = validateStagingPlan(project, scene);
+  assert.deepEqual(result.plan.cues.map((cue) => cue.id), ["exit_ok"]);
+
+  let runtime = stepRuntime(project, createRuntime(project, scene.id));
+  const baseTransform = deepClone(runtime.figures[0]?.transform);
+  while (runtime.waitingFor !== "end") runtime = stepRuntime(project, runtime);
+  assert.deepEqual(runtime.figures[0]?.transform, baseTransform);
+  const replay = (() => {
+    let state = stepRuntime(project, createRuntime(project, scene.id));
+    while (state.waitingFor !== "end") state = stepRuntime(project, state);
+    return state.figures;
+  })();
+  assert.deepEqual(replay, runtime.figures);
+});
+
+test("语义 Cue 只编译安全预设，姿势差分原位柔切", () => {
+  const project = deepClone(generatedAcceptanceProject);
+  const tea = project.scenes.find((scene) => scene.staging?.cues.some((cue) => cue.id === "cue_tea_pose"))!;
+  const script = compileScene(project, tea).script;
+  assert.match(script, /@performance-cue/);
+  assert.match(script, /setAnimation:diff-crossfade/);
+  assert.doesNotMatch(script, /setAnimation:shake|setAnimation:move-front-and-back|blur":5/);
+
+  const arrival = project.scenes.find((scene) => scene.staging?.cues.some((cue) => cue.id === "cue_arrival_turn"))!;
+  const arrivalScript = compileScene(project, arrival).script;
+  assert.match(arrivalScript, /setAnimation:micro-emphasis/);
 });

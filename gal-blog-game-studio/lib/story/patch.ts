@@ -130,16 +130,17 @@ export const AI_TOOL_CATALOG = [
   { name: "modify_line", description: "只修改一条既有台词，保留块 ID。", args: ["sceneId", "blockId", "text"] },
   { name: "set_expression", description: "设置对白或舞台角色表情。", args: ["sceneId", "blockId", "expressionId"] },
   { name: "set_figure_position", description: "设置立绘位置与 transform。", args: ["sceneId", "blockId", "position", "transform?"] },
-  { name: "enter_character", description: "让角色以 WebGAL changeFigure 进入舞台，可指定差分、站位、镜头与入场动画。", args: ["sceneId", "characterId", "expressionId?", "position?", "transform?", "transition?", "index?"] },
+  { name: "plan_staging", description: "为现有剧情块提交语义演出计划；系统负责密度、连续性、时机和安全预设校验。", args: ["sceneId", "enabled?", "cues"] },
+  { name: "enter_character", description: "[高级手工] 直接写入底层 WebGAL 入场参数。普通 AI 应使用 plan_staging。", args: ["sceneId", "characterId", "expressionId?", "position?", "transform?", "transition?", "index?"], advanced: true },
   { name: "exit_character", description: "让指定角色离场并释放舞台状态。", args: ["sceneId", "characterId", "transition?", "durationMs?", "index?"] },
-  { name: "move_character", description: "使用 setTransform 连续移动、缩放或淡化现有角色。", args: ["sceneId", "characterId", "transform", "durationMs?", "easing?", "index?"] },
+  { name: "move_character", description: "[高级手工] 直接写入 setTransform。普通 AI 不应调用。", args: ["sceneId", "characterId", "transform", "durationMs?", "easing?", "index?"], advanced: true },
   { name: "set_background", description: "插入或更新背景舞台操作。", args: ["sceneId", "assetId", "index?"] },
   { name: "set_bgm", description: "插入或更新 BGM 舞台操作。", args: ["sceneId", "assetId", "index?"] },
   { name: "stop_bgm", description: "停止 BGM，可设置淡出时长。", args: ["sceneId", "durationMs?", "index?"] },
   { name: "play_sfx", description: "播放已上传的音效资源。", args: ["sceneId", "assetId", "volume?", "index?"] },
   { name: "play_video", description: "播放已上传的视频资源。", args: ["sceneId", "assetId", "index?"] },
-  { name: "set_stage_animation", description: "对舞台、背景或角色应用 WebGAL 动画预设。", args: ["sceneId", "target", "animation", "index?"] },
-  { name: "wait", description: "插入 WebGAL wait，精确控制演出节奏。", args: ["sceneId", "durationMs", "index?"] },
+  { name: "set_stage_animation", description: "[高级手工] 直接应用底层动画预设。普通 AI 不应调用。", args: ["sceneId", "target", "animation", "index?"], advanced: true },
+  { name: "wait", description: "[高级手工] 插入底层 wait。语义演出不应猜测随机毫秒数。", args: ["sceneId", "durationMs", "index?"], advanced: true },
   { name: "set_text_mode", description: "切换 ADV/NVL 文本模式。", args: ["sceneId", "mode", "index?"] },
   { name: "set_voice", description: "把已生成或上传的语音资源绑定到指定对白。", args: ["sceneId", "blockId", "voiceAssetId"] },
   { name: "generate_tts", description: "请求已配置的 TTS Provider 生成语音；生成后作为 voice 资源回写对白。", args: ["sceneId", "blockId", "voice?", "model?"] },
@@ -153,3 +154,5 @@ export const AI_TOOL_CATALOG = [
   { name: "start_preview", description: "从场景或块位置启动预览。", args: ["sceneId", "blockId?"] },
   { name: "export_web_game", description: "执行预检并导出 WebGAL Web 包。", args: ["engineUrl?", "engineCssUrl?", "includeSource?"] },
 ] as const;
+
+export const AI_DIRECTOR_TOOL_CATALOG = AI_TOOL_CATALOG.filter((tool) => !("advanced" in tool && tool.advanced));

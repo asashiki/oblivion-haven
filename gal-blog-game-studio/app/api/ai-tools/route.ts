@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { executeAiTool, type AiToolCall } from "@/lib/story/aiTools";
-import { AI_TOOL_CATALOG } from "@/lib/story/patch";
+import { AI_DIRECTOR_TOOL_CATALOG, AI_TOOL_CATALOG } from "@/lib/story/patch";
 import { parseStoryProject } from "@/lib/story/schema";
 
 export const runtime = "edge";
@@ -11,7 +11,8 @@ export async function GET() {
     version: 1,
     protocol: "story-patch",
     sourceOfTruth: "StoryProject",
-    tools: AI_TOOL_CATALOG,
+    tools: AI_DIRECTOR_TOOL_CATALOG,
+    advancedManualTools: AI_TOOL_CATALOG.filter((tool) => "advanced" in tool && tool.advanced),
   });
 }
 

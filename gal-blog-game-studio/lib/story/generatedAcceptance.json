@@ -6,9 +6,9 @@
   "version": "0.5.0",
   "locale": "zh-CN",
   "createdAt": "2026-07-26T15:30:00.000Z",
-  "updatedAt": "2026-07-26T19:48:53.032Z",
+  "updatedAt": "2026-08-20T14:17:21.626Z",
   "settings": {
-    "startSceneId": "scene_3d3909b5",
+    "startSceneId": "scene_dfcaa8e1",
     "defaultMode": "adv",
     "webgalVersion": "4.6.2",
     "sharedEngineUrl": "https://cdn.jsdelivr.net/npm/webgal-engine@4.6.2/dist/assets/index-BuN51U1e.js",
@@ -27,17 +27,17 @@
       "name": "第一章 · 被书签留住的午后",
       "order": 0,
       "sceneIds": [
-        "scene_3d3909b5",
-        "scene_7f6b7a36",
-        "scene_9c044876",
-        "scene_d43796bc"
+        "scene_dfcaa8e1",
+        "scene_cee1f1db",
+        "scene_7818dfd8",
+        "scene_2b2d106d"
       ],
       "description": "只使用茶室背景、爱丽丝标准立绘和 Q 版立绘，验证分支、循环、构图与 WebGAL 实机。"
     }
   ],
   "scenes": [
     {
-      "id": "scene_3d3909b5",
+      "id": "scene_dfcaa8e1",
       "chapterId": "chapter_one",
       "name": "01 · 门铃之后",
       "slug": "01-门铃之后",
@@ -48,7 +48,7 @@
       ],
       "blocks": [
         {
-          "id": "stage_90827e12",
+          "id": "stage_7489fbfe",
           "source": "ai",
           "type": "stage",
           "action": "set-background",
@@ -59,7 +59,7 @@
           }
         },
         {
-          "id": "dialogue_caa2c369",
+          "id": "dialogue_4a86b61c",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
@@ -73,40 +73,42 @@
           }
         },
         {
-          "id": "dialogue_cd0a85cc",
+          "id": "dialogue_cdc45544",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "不是坏事。只是门铃响起的时候，我还在想——今天要先问候你，还是先把茶端上来。"
         },
         {
-          "id": "dialogue_88bd48ed",
+          "id": "dialogue_463c64c7",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "现在看来，茶可以等一等。你握着门把的样子，比平时用力。"
         },
         {
-          "id": "dialogue_69c5c866",
+          "id": "dialogue_36eab8ec",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "如果还没想好从哪里说起，就由你选一个比较容易的开头吧。"
         },
         {
-          "id": "choice_04702139",
+          "id": "choice_d553159a",
           "source": "ai",
           "type": "choice",
+          "groupCode": "S01-Q01",
+          "groupName": "01 · 门铃之后 · 选择 1",
           "options": [
             {
               "id": "arrival_talk",
               "label": "先说今天发生的事",
-              "targetSceneId": "scene_7f6b7a36"
+              "targetSceneId": "scene_cee1f1db"
             },
             {
               "id": "arrival_tea",
               "label": "先让红茶醒一会儿",
-              "targetSceneId": "scene_9c044876"
+              "targetSceneId": "scene_7818dfd8"
             }
           ],
           "prompt": "先从哪里开始？"
@@ -128,10 +130,28 @@
             }
           }
         ]
+      },
+      "staging": {
+        "enabled": true,
+        "revision": 1,
+        "cues": [
+          {
+            "id": "cue_arrival_turn",
+            "blockId": "dialogue_463c64c7",
+            "intent": "micro-emphasis",
+            "targetCharacterId": "char_alice",
+            "timing": "during-line",
+            "intensity": "low",
+            "reason": "emotional-turn",
+            "anchorText": "比平时用力",
+            "disabled": false,
+            "source": "ai"
+          }
+        ]
       }
     },
     {
-      "id": "scene_7f6b7a36",
+      "id": "scene_cee1f1db",
       "chapterId": "chapter_one",
       "name": "02A · 先说今天",
       "slug": "02a-先说今天",
@@ -142,7 +162,7 @@
       ],
       "blocks": [
         {
-          "id": "stage_cb93a4f1",
+          "id": "stage_cd858e36",
           "source": "ai",
           "type": "stage",
           "action": "set-background",
@@ -153,7 +173,7 @@
           }
         },
         {
-          "id": "dialogue_5e12a598",
+          "id": "dialogue_a5326690",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
@@ -167,47 +187,49 @@
           }
         },
         {
-          "id": "dialogue_0381ef80",
+          "id": "dialogue_78366381",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "你可以只告诉我，哪一个瞬间最想立刻离开。"
         },
         {
-          "id": "dialogue_bc1463f7",
+          "id": "dialogue_c8956f59",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "……原来如此。你不是不知道该怎么做，只是不想让任何人失望。"
         },
         {
-          "id": "dialogue_65ebb10d",
+          "id": "dialogue_7830251a",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "可如果连你自己也被排在最后，这份体贴迟早会变成一张没人敢拆的欠条。"
         },
         {
-          "id": "dialogue_96467a19",
+          "id": "dialogue_d4206aea",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "要继续说下去，还是先回到茶桌旁？两种都不算逃避。"
         },
         {
-          "id": "choice_2f0b8e3f",
+          "id": "choice_2eea2ead",
           "source": "ai",
           "type": "choice",
+          "groupCode": "S02-Q01",
+          "groupName": "02A · 先说今天 · 选择 1",
           "options": [
             {
               "id": "confession_promise",
               "label": "把真正担心的事说完",
-              "targetSceneId": "scene_d43796bc"
+              "targetSceneId": "scene_2b2d106d"
             },
             {
               "id": "confession_tea",
               "label": "先去看看红茶",
-              "targetSceneId": "scene_9c044876"
+              "targetSceneId": "scene_7818dfd8"
             }
           ],
           "prompt": "把话说到哪一步？"
@@ -229,10 +251,28 @@
             }
           }
         ]
+      },
+      "staging": {
+        "enabled": true,
+        "revision": 1,
+        "cues": [
+          {
+            "id": "cue_confession_turn",
+            "blockId": "dialogue_7830251a",
+            "intent": "micro-emphasis",
+            "targetCharacterId": "char_alice",
+            "timing": "during-line",
+            "intensity": "low",
+            "reason": "emotional-turn",
+            "anchorText": "连你自己也被排在最后",
+            "disabled": false,
+            "source": "ai"
+          }
+        ]
       }
     },
     {
-      "id": "scene_9c044876",
+      "id": "scene_7818dfd8",
       "chapterId": "chapter_one",
       "name": "02B · 先让茶醒",
       "slug": "02b-先让茶醒",
@@ -243,7 +283,7 @@
       ],
       "blocks": [
         {
-          "id": "stage_212592b2",
+          "id": "stage_34121bdb",
           "source": "ai",
           "type": "stage",
           "action": "set-background",
@@ -254,7 +294,7 @@
           }
         },
         {
-          "id": "dialogue_6dfdd477",
+          "id": "dialogue_b2a31f13",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
@@ -268,40 +308,42 @@
           }
         },
         {
-          "id": "dialogue_03cd52a2",
+          "id": "dialogue_4731a6fa",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "这是我替它说的。它本人暂时保持沉默。"
         },
         {
-          "id": "dialogue_0bdf69dc",
+          "id": "dialogue_418115c5",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "不过，停下来喝一口以后，刚才那句话也许会变得没那么锋利。"
         },
         {
-          "id": "dialogue_85b66c79",
+          "id": "dialogue_785c8126",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "你想回去把它说完，还是把答案留在今天的最后？"
         },
         {
-          "id": "choice_8132ebcc",
+          "id": "choice_7209dbd7",
           "source": "ai",
           "type": "choice",
+          "groupCode": "S03-Q01",
+          "groupName": "02B · 先让茶醒 · 选择 1",
           "options": [
             {
               "id": "tea_return",
               "label": "回到刚才的话题",
-              "targetSceneId": "scene_7f6b7a36"
+              "targetSceneId": "scene_cee1f1db"
             },
             {
               "id": "tea_promise",
               "label": "把约定写进书签",
-              "targetSceneId": "scene_d43796bc"
+              "targetSceneId": "scene_2b2d106d"
             }
           ],
           "prompt": "接下来怎么做？"
@@ -323,10 +365,28 @@
             }
           }
         ]
+      },
+      "staging": {
+        "enabled": true,
+        "revision": 1,
+        "cues": [
+          {
+            "id": "cue_tea_pose",
+            "blockId": "dialogue_b2a31f13",
+            "intent": "pose-change",
+            "targetCharacterId": "char_alice",
+            "timing": "before-line",
+            "intensity": "medium",
+            "reason": "punchline",
+            "expressionId": "expr_alice_chibi_normal",
+            "disabled": false,
+            "source": "ai"
+          }
+        ]
       }
     },
     {
-      "id": "scene_d43796bc",
+      "id": "scene_2b2d106d",
       "chapterId": "chapter_one",
       "name": "03 · 留给明天的问题",
       "slug": "03-留给明天的问题",
@@ -337,7 +397,7 @@
       ],
       "blocks": [
         {
-          "id": "stage_81163708",
+          "id": "stage_ec7a62a0",
           "source": "ai",
           "type": "stage",
           "action": "set-background",
@@ -348,7 +408,7 @@
           }
         },
         {
-          "id": "dialogue_de2e9189",
+          "id": "dialogue_00dbe0a7",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
@@ -362,28 +422,28 @@
           }
         },
         {
-          "id": "dialogue_99b61ac0",
+          "id": "dialogue_cffb6289",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "我们只约定一件事：明天醒来以后，先替自己决定一件真正重要的事。"
         },
         {
-          "id": "dialogue_ef5bdbea",
+          "id": "dialogue_659e2800",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "不是最紧急的，也不是别人最期待的。只是一件你愿意承认重要的事。"
         },
         {
-          "id": "dialogue_786ad26e",
+          "id": "dialogue_5f5693dc",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
           "text": "我会把空白留在这张书签上。等你想写的时候，再交给我。"
         },
         {
-          "id": "dialogue_0fe71eed",
+          "id": "dialogue_7c41d675",
           "source": "ai",
           "type": "dialogue",
           "characterId": "char_alice",
@@ -404,6 +464,24 @@
               "y": 570,
               "scale": 1.82
             }
+          }
+        ]
+      },
+      "staging": {
+        "enabled": true,
+        "revision": 1,
+        "cues": [
+          {
+            "id": "cue_promise_turn",
+            "blockId": "dialogue_cffb6289",
+            "intent": "micro-emphasis",
+            "targetCharacterId": "char_alice",
+            "timing": "during-line",
+            "intensity": "low",
+            "reason": "emotional-turn",
+            "anchorText": "先替自己决定",
+            "disabled": false,
+            "source": "ai"
           }
         ]
       }
@@ -550,77 +628,77 @@
     "layoutDirection": "top-down",
     "nodes": [
       {
-        "id": "route_a8be5ca9",
+        "id": "route_cde3d0f2",
         "kind": "start",
         "title": "01 · 门铃之后",
         "x": 360,
         "y": 210,
-        "sceneId": "scene_3d3909b5",
+        "sceneId": "scene_dfcaa8e1",
         "replayable": true
       },
       {
-        "id": "route_0b0b7181",
+        "id": "route_3e079d03",
         "kind": "scene",
         "title": "02A · 先说今天",
         "x": 360,
         "y": 380,
-        "sceneId": "scene_7f6b7a36",
+        "sceneId": "scene_cee1f1db",
         "replayable": true
       },
       {
-        "id": "route_ad925a45",
+        "id": "route_6ee3be16",
         "kind": "scene",
         "title": "02B · 先让茶醒",
         "x": 360,
         "y": 550,
-        "sceneId": "scene_9c044876",
+        "sceneId": "scene_7818dfd8",
         "replayable": true
       },
       {
-        "id": "route_bde3546e",
+        "id": "route_9e9dfc3d",
         "kind": "scene",
         "title": "03 · 留给明天的问题",
         "x": 360,
         "y": 720,
-        "sceneId": "scene_d43796bc",
+        "sceneId": "scene_2b2d106d",
         "replayable": true
       }
     ],
     "edges": [
       {
-        "id": "edge_0c41d42d",
-        "source": "route_a8be5ca9",
-        "target": "route_0b0b7181",
+        "id": "edge_5dded92b",
+        "source": "route_cde3d0f2",
+        "target": "route_3e079d03",
         "label": "先说今天"
       },
       {
-        "id": "edge_f010b3c0",
-        "source": "route_a8be5ca9",
-        "target": "route_ad925a45",
+        "id": "edge_9c12d772",
+        "source": "route_cde3d0f2",
+        "target": "route_6ee3be16",
         "label": "先让茶醒"
       },
       {
-        "id": "edge_b5ee2d35",
-        "source": "route_0b0b7181",
-        "target": "route_bde3546e",
+        "id": "edge_55deb04b",
+        "source": "route_3e079d03",
+        "target": "route_9e9dfc3d",
         "label": "把担心说完"
       },
       {
-        "id": "edge_23cd12f1",
-        "source": "route_0b0b7181",
-        "target": "route_ad925a45",
+        "id": "edge_0534adb8",
+        "source": "route_3e079d03",
+        "target": "route_6ee3be16",
         "label": "回到茶桌"
       },
       {
-        "id": "edge_0038ef91",
-        "source": "route_ad925a45",
-        "target": "route_0b0b7181",
+        "id": "edge_db109491",
+        "source": "route_6ee3be16",
+        "target": "route_3e079d03",
         "label": "回到话题"
       },
       {
-        "id": "edge_c1837031",
-        "source": "route_ad925a45",
-        "target": "route_bde3546e",
+        "id": "edge_00ad5185",
+        "source": "route_6ee3be16",
+        "target": "route_9e9dfc3d",
         "label": "写下约定"
       }
     ]
@@ -630,8 +708,8 @@
       "id": "ending_generated_bookmark",
       "name": "留白的书签",
       "kind": "normal",
-      "routeNodeId": "route_bde3546e",
-      "sceneId": "scene_d43796bc"
+      "routeNodeId": "route_9e9dfc3d",
+      "sceneId": "scene_2b2d106d"
     }
   ],
   "savePoints": [],
