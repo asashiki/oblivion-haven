@@ -207,6 +207,16 @@ export const maidMotionProject: StoryProject = {
         figureAnimation: { mouthSync: "on", blink: "dynamic" },
         source: "human",
       },
+      {
+        id: "mai_mvp_line_2",
+        type: "dialogue",
+        characterId: "char_mai",
+        expressionId: "expr_mai_guide",
+        position: "center",
+        transform: { x: 0, y: 0, scale: 1.48, rotation: 0, alpha: 1, zIndex: 1 },
+        text: "ほら、次はこのポーズで、ゆっくり説明するね。",
+        source: "human",
+      },
     ],
     staging: {
       enabled: true,

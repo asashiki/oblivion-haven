@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { prepareWebGalPreview } from "@/lib/webgalPreview";
+import { maidMotionProject } from "@/lib/story/maidMotionProject";
 
 type EyeState = "open" | "half" | "closed";
 type MouthState = "closed" | "half" | "open";
 type ExpressionKey = "welcome" | "guide";
-type RuntimeMode = "layered" | "webgal";
+type RuntimeMode = "layered" | "webgal" | "engine";
 type StageEffect = "" | "emphasis" | "recoil" | "enter";
 
 type Part = {
@@ -184,6 +186,8 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [syncOffset, setSyncOffset] = useState(0);
+  const [webgalUrl, setWebgalUrl] = useState("");
+  const [webgalStatus, setWebgalStatus] = useState("尚未启动 WebGAL 实机");
 
   useEffect(() => {
     Promise.all([
@@ -206,6 +210,22 @@ export default function Home() {
       setImages(new Map(loaded));
     });
   }, []);
+
+  useEffect(() => {
+    if (runtimeMode !== "engine") return;
+    let cancelled = false;
+    setWebgalStatus("正在编译并启动 WebGAL 4.6.2…");
+    setWebgalUrl("");
+    void prepareWebGalPreview(maidMotionProject, "scene_mai_motion").then((prepared) => {
+      if (cancelled) return;
+      setWebgalUrl(prepared.url);
+      setWebgalStatus("WebGAL 实机已启动：请在引擎对话框中点击推进");
+    }).catch((error) => {
+      if (cancelled) return;
+      setWebgalStatus(error instanceof Error ? error.message : "WebGAL 实机启动失败");
+    });
+    return () => { cancelled = true; };
+  }, [runtimeMode]);
 
   useEffect(() => {
     syncOffsetRef.current = syncOffset;
@@ -405,8 +425,10 @@ export default function Home() {
 
   const ready = manifest && images;
   const modeNote = runtimeMode === "layered"
-    ? "眼睛与嘴巴同时合成；这是 Studio 自有运行层应采用的结果。"
-    : "模拟 WebGAL 当前整图逻辑：眨眼发生时会暂时覆盖正在说话的嘴型。";
+    ? "Studio 分层对照：眼睛与嘴巴同时合成。"
+    : runtimeMode === "webgal"
+      ? "旧版整图覆盖限制模拟，不代表实际 WebGAL 已修复后的结果。"
+      : "真实 WebGAL 4.6.2：点击引擎对话框推进两句，并观察语音、口型与表情切换。";
 
   return (
     <main className="stage-shell">
@@ -414,7 +436,9 @@ export default function Home() {
         <div className="stage-glow" />
         <div className={`character-motion ${playing ? "is-speaking" : ""} ${phrasePulse ? "phrase-pulse" : ""} effect-${stageEffect}`}>
           <div className="character-frame">
-            {ready ? (
+            {runtimeMode === "engine" ? (
+              webgalUrl ? <iframe className="webgal-lab-frame" src={webgalUrl} title="WebGAL 4.6.2 实机 MVP" allow="autoplay; fullscreen" /> : <div className="webgal-lab-loading">{webgalStatus}</div>
+            ) : ready ? (
               <>
                 {previousExpression && (
                   <SpriteCanvas
@@ -464,8 +488,9 @@ export default function Home() {
         <div className="control-group">
           <span className="control-label">运行模式 A / B</span>
           <div className="segment-control">
-            <button className={runtimeMode === "layered" ? "active" : ""} onClick={() => setRuntimeMode("layered")}>优化分层</button>
-            <button className={runtimeMode === "webgal" ? "active warning" : ""} onClick={() => setRuntimeMode("webgal")}>WebGAL 整图模拟</button>
+            <button className={runtimeMode === "engine" ? "active" : ""} onClick={() => setRuntimeMode("engine")}>WebGAL 实机 A</button>
+            <button className={runtimeMode === "layered" ? "active" : ""} onClick={() => setRuntimeMode("layered")}>Studio 分层 B</button>
+            <button className={runtimeMode === "webgal" ? "active warning" : ""} onClick={() => setRuntimeMode("webgal")}>旧整图限制</button>
           </div>
           <p className={`mode-note ${runtimeMode === "webgal" ? "warning" : ""}`}>{modeNote}</p>
         </div>
@@ -504,7 +529,7 @@ export default function Home() {
         <div className="status-grid">
           <div><span>眼睛</span><strong>{eyeState}</strong></div>
           <div><span>嘴巴</span><strong>{mouthState}</strong></div>
-          <div><span>模式</span><strong>{runtimeMode === "layered" ? "分层" : "整图"}</strong></div>
+          <div><span>模式</span><strong>{runtimeMode === "engine" ? "WebGAL 实机" : runtimeMode === "layered" ? "分层" : "整图限制"}</strong></div>
         </div>
       </aside>
     </main>
