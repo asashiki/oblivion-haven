@@ -21,6 +21,8 @@ import {
   WEBGAL_ANIMATION_FILES,
 } from "./performancePresets";
 import { cuePresetName, targetStagePosition, validateStagingPlan } from "./staging";
+import { buildWebGalLayerManifest } from "../figure-motion/webgalLayerManifest";
+import { WEBGAL_FACE_MOTION_ADAPTER_SOURCE } from "../figure-motion/webgalFaceMotionAdapter";
 
 function arg(value: string | number | undefined, name: string): string {
   if (value === undefined || value === "") return "";
@@ -700,7 +702,9 @@ export function compileScene(project: StoryProject, scene: StoryScene): { script
     }
 
     const blockCues = cuesByBlock.get(block.id) || [];
-    const leadingCues = blockCues.filter((cue) => cue.timing !== "after-line");
+    // during-line cues are scheduled by the layered WebGAL adapter against the active vocal.
+    // Emitting their figure change before the dialogue would make a supposedly mid-line swap happen early.
+    const leadingCues = blockCues.filter((cue) => cue.timing !== "after-line" && cue.timing !== "during-line");
     const trailingCues = blockCues.filter((cue) => cue.timing === "after-line");
     leadingCues.forEach((cue) => {
       if (cueAppliedByBlock(blockToCompile, cue)) {
@@ -1004,9 +1008,9 @@ type CompileProjectOptions = {
 };
 
 function compileIndex(project: StoryProject, options: CompileProjectOptions = {}): string {
-  const engineUrl = project.settings.sharedEngineUrl || "";
-  const engineCssUrl = project.settings.sharedEngineCssUrl || "";
   const previewMode = Boolean(options.previewMode);
+  const engineUrl = previewMode ? "/vendor/webgal/assets/index-BuN51U1e.js" : (project.settings.sharedEngineUrl || "");
+  const engineCssUrl = previewMode ? "/vendor/webgal/assets/index-Dch1g2w9.css" : (project.settings.sharedEngineCssUrl || "");
   const entryScript = `
       const click = (target) => target?.dispatchEvent(new MouseEvent("click", { view: window, bubbles: true, cancelable: true }));
       const waitFor = (resolveTarget, timeoutMs = 8000) => new Promise((resolve, reject) => {
@@ -1114,6 +1118,9 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
       if (!engineUrl) throw new Error("No sharedEngineUrl configured. Copy the official WebGAL dist into this package.");
       const engineModule = await import(engineUrl);
       const core = engineModule.W || engineModule.WebGAL || window.WebGAL || window.__WEBGAL__;
+      const layerManifest = await fetch("./game/face-motion/layers.json", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).catch(() => null);
+      const faceMotionAdapter = await import("./game/extensions/face-motion-adapter.js");
+      faceMotionAdapter.attach?.(core, layerManifest);
       window.GalBlogBridge?.attachWebGAL(core);
       status?.remove();
     } catch (error) {
@@ -1167,6 +1174,8 @@ export function compileProject(
       bridge: project.settings.blogBridge,
     }, null, 2)}\n`, contentType: "application/json; charset=utf-8" },
     { path: "game/config.txt", content: compileConfig(project), contentType: "text/plain; charset=utf-8" },
+    { path: "game/face-motion/layers.json", content: `${JSON.stringify(buildWebGalLayerManifest(project), null, 2)}\n`, contentType: "application/json; charset=utf-8" },
+    { path: "game/extensions/face-motion-adapter.js", content: WEBGAL_FACE_MOTION_ADAPTER_SOURCE, contentType: "text/javascript; charset=utf-8" },
     { path: "game/scene/start.txt", content: compileStart(project), contentType: "text/plain; charset=utf-8" },
     ...WEBGAL_ANIMATION_FILES.map((file) => ({ ...file, contentType: "application/json; charset=utf-8" })),
     { path: "game/userStyleSheet.css", content: "", contentType: "text/css; charset=utf-8" },

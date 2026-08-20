@@ -523,6 +523,9 @@ function runtimeIndex(project: StoryProject, runtime: WebGalRuntimeManifest, inl
       window.__GAL_BLOG_LAUNCH__={projectId:${JSON.stringify(project.id)},startScene:launch.scenePath,gameDir:"./game/"};
       window.__TUANCHAT_WEBGAL__={autoStart:true,startScene:launch.scenePath,gameDir:"./game/"};
       const engine=await import("./vendor/webgal/${runtime.entry}");
+      const layerManifest=await fetch("./game/face-motion/layers.json",{cache:"no-store"}).then(response=>response.ok?response.json():null).catch(()=>null);
+      const faceMotionAdapter=await import("./game/extensions/face-motion-adapter.js");
+      faceMotionAdapter.attach?.(engine.W,layerManifest);
       await window.GalBlogBridgeV1.attachWebGAL(engine.W);
       await import("./game/extensions/entry.js");
       status?.remove();

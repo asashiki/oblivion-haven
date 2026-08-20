@@ -44,3 +44,6 @@ Studio 的普通 AI 导演只提交 `PerformanceCue`，不直接决定 WebGAL �
 `diff-crossfade`、`micro-emphasis`、`micro-recoil-left/right`、`soft-enter-left/right`、`soft-exit-left/right`。
 
 旧的 ±100px `shake`、1.15 倍 `move-front-and-back`、冲击波和电影滤镜仍可由高级编辑器手工使用，但不会出现在普通 AI 导演工具表中。
+# Related implementation
+
+独立眼嘴图层与 WebGAL 实机接入见 [`FACIAL_MOTION_AND_WEBGAL.md`](./FACIAL_MOTION_AND_WEBGAL.md)；面向 AI 的资源登记、cue 语法和验收见 [`AI_GALGAME_CONTENT_GUIDE.md`](./AI_GALGAME_CONTENT_GUIDE.md)。

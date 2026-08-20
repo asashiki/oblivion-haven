@@ -2069,6 +2069,7 @@ function SimplePreviewWorkspace({
   const [webgalUrl, setWebgalUrl] = useState("");
   const [webgalStatus, setWebgalStatus] = useState("正在编译 WebGAL 实机…");
   const [webgalWarnings, setWebgalWarnings] = useState<string[]>([]);
+  const [previewEngine, setPreviewEngine] = useState<"webgal" | "studio">("webgal");
   const [directorChoice, setDirectorChoice] = useState<{ sceneId: string; value: boolean }>();
   const directorEnabled = directorChoice?.sceneId === scene.id ? directorChoice.value : scene.staging?.enabled !== false;
   const performanceCues = scene.staging?.cues || [];
@@ -2111,7 +2112,7 @@ function SimplePreviewWorkspace({
   useEffect(() => {
     let cancelled = false;
     if (!scene) return;
-    if (layeredMotionPreview) {
+    if (previewEngine === "studio") {
       queueMicrotask(() => {
         if (cancelled) return;
         setWebgalUrl("");
@@ -2135,7 +2136,7 @@ function SimplePreviewWorkspace({
       setWebgalStatus(error instanceof Error ? error.message : "WebGAL 实机预览准备失败");
     });
     return () => { cancelled = true; };
-  }, [layeredMotionPreview, previewProject, replayStartBlockId, restartKey, scene]);
+  }, [previewEngine, previewProject, replayStartBlockId, restartKey, scene]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(document.fullscreenElement === stageCardRef.current);
@@ -2417,6 +2418,10 @@ function SimplePreviewWorkspace({
             <div className="play-stage-heading">
               <div><span>{project.chapters.find((chapter) => chapter.id === scene.chapterId)?.name}</span><strong>{scene.name}</strong></div>
               <div className="play-stage-actions">
+                <div className="preview-language-switch" aria-label="演出运行时 A/B">
+                  <button className={previewEngine === "webgal" ? "active" : ""} onClick={() => { setPreviewEngine("webgal"); setRestartKey((value) => value + 1); }}>WebGAL A</button>
+                  <button className={previewEngine === "studio" ? "active" : ""} onClick={() => { setPreviewEngine("studio"); setRestartKey((value) => value + 1); }}>Studio B</button>
+                </div>
                 <div className="preview-language-switch" aria-label="WebGAL 界面语言">
                   {[{ value: "2", label: "日" }, { value: "0", label: "中" }, { value: "1", label: "EN" }].map((language) => <button key={language.value} className={playerLanguage === language.value ? "active" : ""} onClick={() => { setPlayerLanguage(language.value); setRestartKey((value) => value + 1); }}>{language.label}</button>)}
                 </div>
@@ -2429,7 +2434,7 @@ function SimplePreviewWorkspace({
               </div>
             </div>
             <div className="webgal-live-stage">
-              {layeredMotionPreview
+              {previewEngine === "studio"
                 ? <DynamicGalgameStage project={project} scene={scene} directorEnabled={directorEnabled} restartKey={restartKey} />
                 : webgalUrl
                   ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" />

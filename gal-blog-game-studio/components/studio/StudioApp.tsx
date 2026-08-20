@@ -654,6 +654,7 @@ function PreviewWorkspace({
   onChange: (next: StoryProject, label: string) => void;
 }) {
   const [mode, setMode] = useState<"internal" | "terre">("internal");
+  const [engine, setEngine] = useState<"webgal" | "studio">("webgal");
   const scene = project.scenes.find((item) => item.id === sceneId);
   const cues = scene?.staging?.cues || [];
   const [directorChoice, setDirectorChoice] = useState<{ sceneId: string; value: boolean }>();
@@ -696,8 +697,8 @@ function PreviewWorkspace({
   return (
     <div className="preview-workspace">
       <header className="workspace-title">
-        <div><span className="eyebrow">REALTIME PREVIEW</span><h2>运行与 WebGAL 预览</h2><p>内置舞台用于快速检查 Story IR；Terre 模式运行真实 WebGAL 4.6.2。</p></div>
-        <div className="segmented"><button className={mode === "internal" ? "active" : ""} onClick={() => setMode("internal")}>Studio Runtime</button><button className={mode === "terre" ? "active" : ""} onClick={() => setMode("terre")}>WebGAL / Terre</button></div>
+        <div><span className="eyebrow">REALTIME PREVIEW</span><h2>运行与 WebGAL 预览</h2><p>默认直接运行内置 WebGAL 4.6.2；Studio Runtime 仅作为分层合成 A/B 对照。</p></div>
+        <div className="segmented"><button className={mode === "internal" && engine === "webgal" ? "active" : ""} onClick={() => { setMode("internal"); setEngine("webgal"); }}>WebGAL A · 分层适配</button><button className={mode === "internal" && engine === "studio" ? "active" : ""} onClick={() => { setMode("internal"); setEngine("studio"); }}>Studio B · 对照</button><button className={mode === "terre" ? "active" : ""} onClick={() => setMode("terre")}>Terre</button></div>
       </header>
       <div className="preview-layout">
         <main>
@@ -705,7 +706,7 @@ function PreviewWorkspace({
             <PreviewStage
               project={project}
               sceneId={sceneId}
-              engine="studio"
+              engine={engine}
               stagingEnabled={directorEnabled}
               playbackMode={playbackMode}
               startBlockId={startBlockId}
