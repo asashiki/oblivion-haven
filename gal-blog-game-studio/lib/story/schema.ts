@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { StoryDiagnostic, StoryProject } from "./types";
+import { validateStagingPlan } from "./staging";
 
 const Id = z.string().min(1);
 const Base = z.object({
@@ -322,6 +323,7 @@ export function validateProject(project: StoryProject): StoryDiagnostic[] {
         if (block.fallbackSceneId && !sceneIds.has(block.fallbackSceneId)) addReferenceError(`ai-fallback-${block.id}`, "AI_FALLBACK_MISSING", "实时 AI fallback 场景不存在。", scene.id, block.id);
       }
     });
+    if (scene.staging) diagnostics.push(...validateStagingPlan(project, scene).diagnostics);
   });
 
   project.chapters.forEach((chapter) => chapter.sceneIds.forEach((sceneId) => {

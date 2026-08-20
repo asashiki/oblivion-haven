@@ -18,6 +18,41 @@ export type WebgalAnimationPreset = {
  * The upstream files are MPL-2.0 licensed. See THIRD_PARTY_NOTICES.md.
  */
 const animationFrames: Record<string, Array<Record<string, unknown>>> = {
+  "diff-crossfade": [
+    { alpha: 0.72, duration: 0 },
+    { alpha: 1, duration: 160, ease: "easeOut" },
+  ],
+  "micro-emphasis": [
+    { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, duration: 0 },
+    { position: { x: 0, y: -14 }, scale: { x: 1.015, y: 1.015 }, duration: 140, ease: "easeOut" },
+    { position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, duration: 200, ease: "easeInOut" },
+  ],
+  "micro-recoil-left": [
+    { position: { x: 0, y: 0 }, duration: 0 },
+    { position: { x: -24, y: 0 }, duration: 130, ease: "easeOut" },
+    { position: { x: 0, y: 0 }, duration: 210, ease: "easeInOut" },
+  ],
+  "micro-recoil-right": [
+    { position: { x: 0, y: 0 }, duration: 0 },
+    { position: { x: 24, y: 0 }, duration: 130, ease: "easeOut" },
+    { position: { x: 0, y: 0 }, duration: 210, ease: "easeInOut" },
+  ],
+  "soft-enter-left": [
+    { alpha: 0, position: { x: -36, y: 0 }, duration: 0 },
+    { alpha: 1, position: { x: 0, y: 0 }, duration: 360, ease: "easeOut" },
+  ],
+  "soft-enter-right": [
+    { alpha: 0, position: { x: 36, y: 0 }, duration: 0 },
+    { alpha: 1, position: { x: 0, y: 0 }, duration: 360, ease: "easeOut" },
+  ],
+  "soft-exit-left": [
+    { alpha: 1, position: { x: 0, y: 0 }, duration: 0 },
+    { alpha: 0, position: { x: -36, y: 0 }, duration: 340, ease: "easeIn" },
+  ],
+  "soft-exit-right": [
+    { alpha: 1, position: { x: 0, y: 0 }, duration: 0 },
+    { alpha: 0, position: { x: 36, y: 0 }, duration: 340, ease: "easeIn" },
+  ],
   "enter-from-left": [
     { alpha: 0, scale: { x: 1, y: 1 }, position: { x: -50, y: 0 }, rotation: 0, blur: 5, duration: 0 },
     { alpha: 1, scale: { x: 1, y: 1 }, position: { x: 0, y: 0 }, rotation: 0, blur: 0, duration: 500 },
@@ -79,6 +114,14 @@ const animationFrames: Record<string, Array<Record<string, unknown>>> = {
 };
 
 export const WEBGAL_ANIMATION_PRESETS: WebgalAnimationPreset[] = [
+  { name: "diff-crossfade", label: "差分柔切", description: "固定位置的短淡化，不重新入场", durationMs: 160, category: "transition" },
+  { name: "micro-emphasis", label: "轻强调", description: "上移 14px、放大 1.5% 后精确复位", durationMs: 340, category: "motion" },
+  { name: "micro-recoil-left", label: "轻退（左）", description: "横移 24px 后精确复位", durationMs: 340, category: "motion" },
+  { name: "micro-recoil-right", label: "轻退（右）", description: "横移 24px 后精确复位", durationMs: 340, category: "motion" },
+  { name: "soft-enter-left", label: "轻入场（左）", description: "36px 位移与透明度柔和入场", durationMs: 360, category: "transition" },
+  { name: "soft-enter-right", label: "轻入场（右）", description: "36px 位移与透明度柔和入场", durationMs: 360, category: "transition" },
+  { name: "soft-exit-left", label: "轻离场（左）", description: "36px 位移与透明度柔和离场", durationMs: 340, category: "transition" },
+  { name: "soft-exit-right", label: "轻离场（右）", description: "36px 位移与透明度柔和离场", durationMs: 340, category: "transition" },
   { name: "enter", label: "柔和淡入", description: "WebGAL 默认透明度淡入", durationMs: 300, category: "transition" },
   { name: "exit", label: "柔和淡出", description: "WebGAL 默认透明度淡出", durationMs: 300, category: "transition" },
   { name: "enter-from-left", label: "从左侧淡入", description: "带轻微模糊的左侧入场", durationMs: 500, category: "transition" },
@@ -98,6 +141,18 @@ export const WEBGAL_ANIMATION_PRESETS: WebgalAnimationPreset[] = [
   { name: "removeFilm", label: "清除滤镜", description: "关闭全部电影滤镜", durationMs: 0, category: "filter" },
 ];
 
+/** The only presets exposed to the normal AI director surface. */
+export const AI_SAFE_ANIMATION_PRESETS = WEBGAL_ANIMATION_PRESETS.filter((preset) => [
+  "diff-crossfade",
+  "micro-emphasis",
+  "micro-recoil-left",
+  "micro-recoil-right",
+  "soft-enter-left",
+  "soft-enter-right",
+  "soft-exit-left",
+  "soft-exit-right",
+].includes(preset.name));
+
 export const WEBGAL_ANIMATION_FILES = [
   {
     path: "game/animation/animationTable.json",
@@ -110,18 +165,17 @@ export const WEBGAL_ANIMATION_FILES = [
 ];
 
 export function presetsForStageAction(action: StageBlock["action"]): WebgalAnimationPreset[] {
-  if (["set-background", "enter-character", "set-expression"].includes(action)) {
-    return WEBGAL_ANIMATION_PRESETS.filter((preset) =>
-      ["enter", "enter-from-left", "enter-from-right", "enter-from-bottom"].includes(preset.name),
-    );
+  if (action === "set-expression") {
+    return AI_SAFE_ANIMATION_PRESETS.filter((preset) => preset.name === "diff-crossfade");
+  }
+  if (["set-background", "enter-character"].includes(action)) {
+    return AI_SAFE_ANIMATION_PRESETS.filter((preset) => preset.name.startsWith("soft-enter"));
   }
   if (["exit-character", "clear-stage"].includes(action)) {
-    return WEBGAL_ANIMATION_PRESETS.filter((preset) => preset.name === "exit");
+    return AI_SAFE_ANIMATION_PRESETS.filter((preset) => preset.name.startsWith("soft-exit"));
   }
   if (action === "transition") {
-    return WEBGAL_ANIMATION_PRESETS.filter((preset) =>
-      preset.category !== "transition" || ["enter", "exit"].includes(preset.name),
-    );
+    return AI_SAFE_ANIMATION_PRESETS;
   }
   return [];
 }
@@ -141,4 +195,3 @@ export function toWebgalVolume(volume: number | undefined): number | undefined {
   const normalized = volume <= 1 ? volume * 100 : volume;
   return Math.max(0, Math.min(100, Math.round(normalized)));
 }
-

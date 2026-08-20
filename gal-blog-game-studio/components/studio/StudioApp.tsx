@@ -58,6 +58,7 @@ import { parseStoryProject, validateProject } from "@/lib/story/schema";
 import type {
   ImportFormat,
   ImportResult,
+  PerformanceCue,
   StoryAsset,
   StoryCharacter,
   StoryDiagnostic,
@@ -74,8 +75,8 @@ import { TerreClient } from "@/lib/integrations/terre";
 type View = "story" | "map" | "assets" | "ai" | "preview" | "diagnostics" | "export" | "settings";
 type Snapshot = { project: StoryProject; label: string; actor: "human" | "ai" | "import" | "system"; timestamp: string };
 
-const STORAGE_KEY = "gal-blog-game-studio.project.v6";
-const LEGACY_STORAGE_KEY = "gal-blog-game-studio.project.v5";
+const STORAGE_KEY = "gal-blog-game-studio.project.v8";
+const LEGACY_STORAGE_KEY = "gal-blog-game-studio.project.v7";
 
 const navItems: Array<{ id: View; label: string; icon: typeof Layers3 }> = [
   { id: "story", label: "剧本", icon: Layers3 },
@@ -619,12 +620,63 @@ function DiagnosticsWorkspace({ diagnostics, project, onOpenScene }: { diagnosti
   );
 }
 
-function PreviewWorkspace({ project, sceneId }: { project: StoryProject; sceneId: string }) {
+const cueIntentLabels: Record<PerformanceCue["intent"], string> = {
+  hold: "保持",
+  enter: "轻入场",
+  exit: "轻离场",
+  "expression-change": "表情柔切",
+  "pose-change": "姿势柔切",
+  "listener-react": "听者反应",
+  "micro-emphasis": "轻强调",
+  "micro-recoil": "轻退",
+  reframe: "重新构图",
+};
+
+const cueReasonLabels: Record<NonNullable<PerformanceCue["reason"]>, string> = {
+  "scene-entry": "场景入场",
+  "explicit-physical-action": "明确肢体动作",
+  "emotional-turn": "情绪转折",
+  "addressed-listener": "被直接点名",
+  reveal: "揭示",
+  punchline: "包袱落点",
+  shock: "冲击",
+  "scene-exit": "场景离场",
+};
+
+function PreviewWorkspace({
+  project,
+  sceneId,
+  onChange,
+}: {
+  project: StoryProject;
+  sceneId: string;
+  onChange: (next: StoryProject, label: string) => void;
+}) {
   const [mode, setMode] = useState<"internal" | "terre">("internal");
+  const scene = project.scenes.find((item) => item.id === sceneId);
+  const cues = scene?.staging?.cues || [];
+  const [directorChoice, setDirectorChoice] = useState<{ sceneId: string; value: boolean }>();
+  const directorEnabled = directorChoice?.sceneId === sceneId ? directorChoice.value : scene?.staging?.enabled !== false;
+  const [playbackMode, setPlaybackMode] = useState<"manual" | "auto" | "fast">("manual");
+  const [startBlockId, setStartBlockId] = useState<string>();
+  const [restartKey, setRestartKey] = useState(0);
   const [terreUrl, setTerreUrl] = useState(project.settings.terreBaseUrl || "http://localhost:3001");
   const [status, setStatus] = useState("未连接");
   const [previewUrl, setPreviewUrl] = useState("");
   const [bridgeLog, setBridgeLog] = useState<string[]>([]);
+
+  const updatePlan = (nextCues: PerformanceCue[], enabled = directorEnabled, label = "更新演出计划") => {
+    onChange({
+      ...project,
+      scenes: project.scenes.map((item) => item.id === sceneId
+        ? { ...item, staging: { enabled, cues: nextCues, revision: (item.staging?.revision || 0) + 1 } }
+        : item),
+    }, label);
+  };
+
+  const patchCue = (cueId: string, patch: Partial<PerformanceCue>) => {
+    updatePlan(cues.map((cue) => cue.id === cueId ? { ...cue, ...patch } : cue));
+  };
 
   const connect = async () => {
     setStatus("连接中…");
@@ -649,7 +701,16 @@ function PreviewWorkspace({ project, sceneId }: { project: StoryProject; sceneId
       <div className="preview-layout">
         <main>
           {mode === "internal" ? (
-            <PreviewStage project={project} sceneId={sceneId} onBridgeEvent={(message) => setBridgeLog((items) => [`${new Date().toLocaleTimeString()} ${message}`, ...items].slice(0, 8))} />
+            <PreviewStage
+              project={project}
+              sceneId={sceneId}
+              engine="studio"
+              stagingEnabled={directorEnabled}
+              playbackMode={playbackMode}
+              startBlockId={startBlockId}
+              restartKey={restartKey}
+              onBridgeEvent={(message) => setBridgeLog((items) => [`${new Date().toLocaleTimeString()} ${message}`, ...items].slice(0, 8))}
+            />
           ) : previewUrl ? (
             <iframe className="terre-frame" src={previewUrl} title="WebGAL Terre preview" />
           ) : (
@@ -657,7 +718,55 @@ function PreviewWorkspace({ project, sceneId }: { project: StoryProject; sceneId
           )}
         </main>
         <aside className="preview-console">
-          <span className="eyebrow">PREVIEW ADAPTER</span>
+          <span className="eyebrow">PERFORMANCE PLAN</span>
+          <div className="director-ab">
+            <button className={!directorEnabled ? "active" : ""} onClick={() => setDirectorChoice({ sceneId, value: false })}>静态 A</button>
+            <button className={directorEnabled ? "active" : ""} onClick={() => setDirectorChoice({ sceneId, value: true })}>导演 B</button>
+          </div>
+          <div className="director-playback">
+            {(["manual", "auto", "fast"] as const).map((item) => (
+              <button key={item} className={playbackMode === item ? "active" : ""} onClick={() => setPlaybackMode(item)}>
+                {item === "manual" ? "手动" : item === "auto" ? "自动" : "快进"}
+              </button>
+            ))}
+            <button onClick={() => setRestartKey((value) => value + 1)}><RefreshCcw size={12} /> 重播</button>
+          </div>
+          <div className="performance-plan-list">
+            {cues.length ? cues.map((cue) => {
+              const character = project.characters.find((item) => item.id === cue.targetCharacterId);
+              const block = scene?.blocks.find((item) => item.id === cue.blockId);
+              return (
+                <article key={cue.id} className={cue.disabled ? "is-disabled" : ""}>
+                  <header>
+                    <strong>{cueIntentLabels[cue.intent]}</strong>
+                    <span>{character?.displayName || "画面"}</span>
+                    <button title="从这里播放" onClick={() => { setStartBlockId(cue.blockId); setRestartKey((value) => value + 1); }}><Play size={11} /></button>
+                  </header>
+                  <p>{block?.type === "dialogue" || block?.type === "narration" ? block.text : block?.label || block?.id}</p>
+                  <div>
+                    <select value={cue.timing} onChange={(event) => patchCue(cue.id, { timing: event.target.value as PerformanceCue["timing"] })}>
+                      <option value="before-line">台词前</option>
+                      <option value="during-line">台词中</option>
+                      <option value="after-line">台词后</option>
+                    </select>
+                    <select value={cue.intensity} onChange={(event) => patchCue(cue.id, { intensity: event.target.value as PerformanceCue["intensity"] })}>
+                      <option value="low">低</option>
+                      <option value="medium">中</option>
+                      <option value="high">高</option>
+                    </select>
+                  </div>
+                  <small>{cue.reason ? cueReasonLabels[cue.reason] : "默认保持"}{cue.anchorText ? ` · “${cue.anchorText}”` : ""}</small>
+                  <footer>
+                    <button onClick={() => patchCue(cue.id, { disabled: !cue.disabled })}>{cue.disabled ? "启用" : "停用"}</button>
+                    <button onClick={() => updatePlan(cues.filter((item) => item.id !== cue.id), directorEnabled, "删除演出 Cue")}><X size={11} /> 删除</button>
+                  </footer>
+                </article>
+              );
+            }) : <p className="performance-plan-empty">本段没有必要的可见演出；保持不动是默认选择。</p>}
+          </div>
+          <div className="preview-console__section">
+            <strong>PREVIEW ADAPTER</strong>
+          </div>
           <label>Terre 地址<input value={terreUrl} onChange={(event) => setTerreUrl(event.target.value)} /></label>
           <button onClick={connect}><CloudCog size={14} /> 同步 Story IR → WebGAL</button>
           <div className="connection-status"><CircleDot size={13} /><span>{status}</span></div>
@@ -910,7 +1019,7 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
             {view === "map" && <NarrativeMap project={project} onChange={commit} onOpenScene={openScene} />}
             {view === "assets" && <AssetWorkspace project={project} onChange={commit} />}
             {view === "ai" && <AiWorkspace project={project} sceneId={selectedSceneId} onChange={commit} />}
-            {view === "preview" && <PreviewWorkspace project={project} sceneId={selectedSceneId} />}
+            {view === "preview" && <PreviewWorkspace project={project} sceneId={selectedSceneId} onChange={commit} />}
             {view === "diagnostics" && <DiagnosticsWorkspace diagnostics={diagnostics} project={project} onOpenScene={openScene} />}
             {view === "export" && <ExportWorkspace project={project} diagnostics={diagnostics} />}
             {view === "settings" && <SettingsWorkspace project={project} onChange={commit} />}

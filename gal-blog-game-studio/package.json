@@ -13,7 +13,7 @@
     "prepare:webgal": "node scripts/prepare-webgal-runtime.mjs",
     "export:example": "node --import tsx scripts/export-example-v1.ts",
     "test": "npm run test:core && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:core": "node --import tsx --test tests/story-core.test.ts",
+    "test:core": "node --import tsx --test tests/story-core.test.ts tests/figure-motion-package.test.ts tests/figure-motion-renderer.test.ts tests/figure-motion-audio.test.ts tests/figure-motion-blink.test.ts tests/performance-plan.test.ts",
     "generate:acceptance": "node --import tsx scripts/generate-ai-acceptance.ts",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
