@@ -180,7 +180,9 @@ export default function Home() {
   const [previousExpression, setPreviousExpression] = useState<ExpressionKey | null>(null);
   const [eyeState, setEyeState] = useState<EyeState>("open");
   const [mouthState, setMouthState] = useState<MouthState>("closed");
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("layered");
+  // The lab is an engine验收页面: open the real WebGAL runtime by default.
+  // The layered canvas remains available as the explicit Studio B comparison.
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("engine");
   const [stageEffect, setStageEffect] = useState<StageEffect>("enter");
   const [phrasePulse, setPhrasePulse] = useState(false);
   const [playing, setPlaying] = useState(false);
