@@ -200,13 +200,12 @@ export function attach(core, manifest) {
   };
   const stage = resolveStage();
   if (install(stage)) return true;
-  // WebGAL creates gameplay.pixiStage during its first render.  The adapter
-  // is loaded beside the engine module, so retry briefly instead of silently
-  // missing the stage when initialization is asynchronous.
-  let attempts = 0;
+  // WebGAL creates gameplay.pixiStage only after the title/start sequence.
+  // Keep the short-lived adapter alive until that real stage exists; a fixed
+  // retry window expires while the user is still looking at the title screen.
   const timer = window.setInterval(() => {
-    if (install(resolveStage()) || ++attempts > 200) window.clearInterval(timer);
-  }, 50);
+    if (install(resolveStage())) window.clearInterval(timer);
+  }, 100);
   return false;
 }
 `;
