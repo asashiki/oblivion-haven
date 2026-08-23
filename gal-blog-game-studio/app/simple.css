@@ -4115,29 +4115,6 @@ body:has(.simple-studio) { min-width: 0; }
 }
 .simple-performance-plan > header strong { color: #4f485a; font-size: 11px; }
 .simple-performance-plan > header small { color: #918a98; font-size: 9px; }
-.simple-director-ab {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid #d2ced8;
-  border-radius: 7px;
-  background: #e4e1e8;
-}
-.simple-director-ab button {
-  min-height: 25px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #8a8291;
-  font-size: 9px;
-}
-.simple-director-ab button.active {
-  background: #fff;
-  color: #665577;
-  box-shadow: 0 1px 5px rgba(45, 38, 53, .1);
-}
 .simple-performance-cues {
   display: flex;
   max-height: 155px;

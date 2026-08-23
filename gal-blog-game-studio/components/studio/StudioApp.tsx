@@ -89,11 +89,22 @@ const navItems: Array<{ id: View; label: string; icon: typeof Layers3 }> = [
   { id: "export", label: "编译与导出", icon: FileArchive },
 ];
 
+function ensureBundledMotionMvp(project: StoryProject): StoryProject {
+  if (project.id !== maidMotionProject.id) return project;
+  const hasLayeredMotion = project.characters.some((character) => character.expressions.some((expression) => (
+    Boolean(expression.facialMotion?.parts)
+    && project.assets.some((asset) => asset.id === expression.assetId)
+  )));
+  const hasTimeline = project.assets.some((asset) => asset.metadata?.mouthTimelinePath === "face-motion-demo/mouth-timeline.json");
+  return hasLayeredMotion && hasTimeline ? project : deepClone(maidMotionProject);
+}
+
 function loadInitialProject(): StoryProject {
   if (typeof window === "undefined") return migrateStoryProject(deepClone(maidMotionProject));
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return migrateStoryProject(saved ? parseStoryProject(JSON.parse(saved)) : deepClone(maidMotionProject));
+    const project = saved ? parseStoryProject(JSON.parse(saved)) : deepClone(maidMotionProject);
+    return migrateStoryProject(ensureBundledMotionMvp(project));
   } catch {
     return migrateStoryProject(deepClone(maidMotionProject));
   }
@@ -656,8 +667,7 @@ function PreviewWorkspace({
   const [mode, setMode] = useState<"internal" | "terre">("internal");
   const scene = project.scenes.find((item) => item.id === sceneId);
   const cues = scene?.staging?.cues || [];
-  const [directorChoice, setDirectorChoice] = useState<{ sceneId: string; value: boolean }>();
-  const directorEnabled = directorChoice?.sceneId === sceneId ? directorChoice.value : scene?.staging?.enabled !== false;
+  const directorEnabled = scene?.staging?.enabled !== false;
   const [playbackMode, setPlaybackMode] = useState<"manual" | "auto" | "fast">("manual");
   const [startBlockId, setStartBlockId] = useState<string>();
   const [restartKey, setRestartKey] = useState(0);
@@ -696,8 +706,8 @@ function PreviewWorkspace({
   return (
     <div className="preview-workspace">
       <header className="workspace-title">
-        <div><span className="eyebrow">REALTIME PREVIEW</span><h2>运行与 WebGAL 预览</h2><p>内置舞台用于快速检查 Story IR；Terre 模式运行真实 WebGAL 4.6.2。</p></div>
-        <div className="segmented"><button className={mode === "internal" ? "active" : ""} onClick={() => setMode("internal")}>Studio Runtime</button><button className={mode === "terre" ? "active" : ""} onClick={() => setMode("terre")}>WebGAL / Terre</button></div>
+        <div><span className="eyebrow">REALTIME PREVIEW</span><h2>运行与 WebGAL 预览</h2><p>直接运行内置 WebGAL 4.6.2；需要本地工程同步时可连接 Terre。</p></div>
+        <div className="segmented"><button className={mode === "internal" ? "active" : ""} onClick={() => setMode("internal")}>WebGAL 4.6.2</button><button className={mode === "terre" ? "active" : ""} onClick={() => setMode("terre")}>Terre</button></div>
       </header>
       <div className="preview-layout">
         <main>
@@ -705,7 +715,7 @@ function PreviewWorkspace({
             <PreviewStage
               project={project}
               sceneId={sceneId}
-              engine="studio"
+              engine="webgal"
               stagingEnabled={directorEnabled}
               playbackMode={playbackMode}
               startBlockId={startBlockId}
@@ -720,10 +730,6 @@ function PreviewWorkspace({
         </main>
         <aside className="preview-console">
           <span className="eyebrow">PERFORMANCE PLAN</span>
-          <div className="director-ab">
-            <button className={!directorEnabled ? "active" : ""} onClick={() => setDirectorChoice({ sceneId, value: false })}>静态 A</button>
-            <button className={directorEnabled ? "active" : ""} onClick={() => setDirectorChoice({ sceneId, value: true })}>导演 B</button>
-          </div>
           <div className="director-playback">
             {(["manual", "auto", "fast"] as const).map((item) => (
               <button key={item} className={playbackMode === item ? "active" : ""} onClick={() => setPlaybackMode(item)}>
@@ -1005,7 +1011,6 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
           </div>
           <div className="topbar__actions">
             <button className="simple-mode-return" onClick={() => setExperienceMode("simple")}><Sparkles size={14} /> 简单模式</button>
-            <a className="topbar-face-motion" href="/face-motion-lab"><ImageIcon size={14} /> 面部动效</a>
             <button onClick={undo} disabled={!past.length} title="撤销"><Undo2 size={16} /></button>
             <button onClick={redo} disabled={!future.length} title="重做"><Redo2 size={16} /></button>
             <button onClick={() => setHistoryOpen((value) => !value)} className={historyOpen ? "active" : ""} title="版本历史"><History size={16} /></button>

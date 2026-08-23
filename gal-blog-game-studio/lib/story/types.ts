@@ -62,7 +62,25 @@ export type CharacterExpression = {
   facialMotion?: {
     manifestPath: string;
     expressionId: string;
+    canvas?: { width: number; height: number };
+    parts?: {
+      eyes?: {
+        open?: FaceMotionPart;
+        half?: FaceMotionPart;
+        closed?: FaceMotionPart;
+      };
+      mouth?: {
+        closed?: FaceMotionPart;
+        half?: FaceMotionPart;
+        open?: FaceMotionPart;
+      };
+    };
   };
+};
+
+export type FaceMotionPart = {
+  file: string;
+  rect: { x: number; y: number; width: number; height: number };
 };
 
 export type StoryCharacter = {

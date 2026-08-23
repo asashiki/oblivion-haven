@@ -20,6 +20,7 @@ fi
 
 echo "Running bounded vinext build..."
 node "${SITES_PROJECT_ROOT}/scripts/prepare-webgal-runtime.mjs"
+node --import tsx "${SITES_PROJECT_ROOT}/scripts/generate-motion-smoke.ts"
 timeout \
   --signal=TERM \
   --kill-after="${SITES_BUILD_KILL_AFTER:-10s}" \

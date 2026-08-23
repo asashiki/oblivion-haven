@@ -37,28 +37,6 @@ body {
   overflow: hidden;
 }
 
-.face-motion-lab-link {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 80;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,.16);
-  border-radius: 10px;
-  background: rgba(26,24,39,.92);
-  color: #f7f3ff;
-  box-shadow: 0 12px 28px rgba(15,10,30,.28);
-  font-size: 11px;
-  font-weight: 700;
-  text-decoration: none;
-  backdrop-filter: blur(12px);
-}
-
-.face-motion-lab-link span { padding: 2px 5px; border-radius: 4px; background: #8c78ff; font-size: 8px; letter-spacing: .08em; }
-
 body {
   margin: 0;
   background: var(--bg);
@@ -442,26 +420,6 @@ select {
   background: linear-gradient(135deg, #7181c9, #5a69ad);
   color: white;
   box-shadow: 0 4px 16px #5364b233;
-}
-
-.topbar-face-motion {
-  display: inline-flex;
-  height: 31px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid #343b55;
-  border-radius: 4px;
-  background: #171c2b;
-  color: #aeb8e9;
-  font-size: 10px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.topbar-face-motion:hover {
-  border-color: #59658f;
-  color: #dce2ff;
 }
 
 .studio-content {
