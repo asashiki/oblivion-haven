@@ -1,5 +1,16 @@
 export const WEBGAL_FACE_MOTION_ADAPTER_SOURCE = `
 const normalizePath = (value) => String(value || "").replace(/^\\/+/, "").replace(/^.*?\\/game\\/figure\\//, "");
+// WebGAL's compiler resolves figure resources to ./game/figure/<asset path>.
+// The layered manifest stores the project-relative asset path, so adapter
+// loads must go through the same resource namespace or the patch texture is
+// never found (the base sprite remains static with no visible error).
+const figureResourcePath = (value) => {
+  const path = String(value || "").replace(/^\\/+/, "");
+  if (!path) return "";
+  if (/^(?:https?:)?\\/\\//.test(path) || path.startsWith("./game/")) return path;
+  if (path.startsWith("game/")) return "./" + path;
+  return "./game/figure/" + path;
+};
 const findExpression = (manifest, key, sourceUrl) => {
   const figure = manifest?.figures?.[key];
   if (!figure) return null;
@@ -11,9 +22,10 @@ const findExpression = (manifest, key, sourceUrl) => {
 };
 const loadTexture = (stage, path, done) => {
   if (!path) return done(null);
-  const cached = stage.assetLoader?.resources?.[path]?.texture;
+  const resourcePath = figureResourcePath(path);
+  const cached = stage.assetLoader?.resources?.[resourcePath]?.texture;
   if (cached) return done(cached);
-  try { stage.loadAsset(path, () => done(stage.assetLoader?.resources?.[path]?.texture || null)); }
+  try { stage.loadAsset(resourcePath, () => done(stage.assetLoader?.resources?.[resourcePath]?.texture || null)); }
   catch (_) { done(null); }
 };
 const ensureLayer = (container, name, SpriteCtor) => {
