@@ -1006,7 +1006,6 @@ function StudioAppClient({ initialProject }: { initialProject: StoryProject }) {
           </div>
           <div className="topbar__actions">
             <button className="simple-mode-return" onClick={() => setExperienceMode("simple")}><Sparkles size={14} /> 简单模式</button>
-            <a className="topbar-face-motion" href="/face-motion-lab"><ImageIcon size={14} /> 面部动效</a>
             <button onClick={undo} disabled={!past.length} title="撤销"><Undo2 size={16} /></button>
             <button onClick={redo} disabled={!future.length} title="重做"><Redo2 size={16} /></button>
             <button onClick={() => setHistoryOpen((value) => !value)} className={historyOpen ? "active" : ""} title="版本历史"><History size={16} /></button>
