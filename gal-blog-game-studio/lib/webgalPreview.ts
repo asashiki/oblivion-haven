@@ -3,6 +3,7 @@
 import { resolveRegisteredAssetUrl } from "./assetUrl";
 import { readLocalAssetFile } from "./localAssetStore";
 import { compileProject } from "./story/compiler";
+import { buildWebGalLayerManifest } from "./figure-motion/webgalLayerManifest";
 import type { StageBlock, StoryAsset, StoryBlock, StoryProject } from "./story/types";
 
 const PREVIEW_CACHE = "gal-blog-studio-webgal-preview-v1";
@@ -103,6 +104,70 @@ async function loadAssetResponse(asset: StoryAsset): Promise<Response | undefine
       "Cache-Control": "no-store",
     },
   });
+}
+
+async function loadPublicResponse(path: string): Promise<Response | undefined> {
+  const normalized = safeRelativePath(path);
+  if (!normalized || /^(?:https?:)?\/\//i.test(normalized)) return undefined;
+  const response = await fetch(new URL(`/${normalized}`, window.location.origin), { cache: "no-store" });
+  if (!response.ok) return undefined;
+  return new Response(await response.blob(), {
+    headers: {
+      "Content-Type": response.headers.get("content-type") || "application/octet-stream",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+async function stageFaceMotionFiles(
+  cache: Cache,
+  base: URL,
+  project: StoryProject,
+  warnings: string[],
+): Promise<void> {
+  const manifest = buildWebGalLayerManifest(project);
+  const projectAssetPaths = new Set(project.assets.map((asset) => safeRelativePath(asset.path)));
+  const figurePaths = new Set<string>();
+
+  Object.values(manifest.figures).forEach((figure) => {
+    Object.values(figure.expressions).forEach((expression) => {
+      figurePaths.add(expression.base);
+      Object.values(expression.eyes).forEach((part) => part && figurePaths.add(part.file));
+      Object.values(expression.mouth).forEach((part) => part && figurePaths.add(part.file));
+    });
+  });
+
+  await Promise.all([...figurePaths].map(async (path) => {
+    const sourcePath = safeRelativePath(path);
+    // Base frames are already staged through project.assets. Part files in the
+    // bundled MVP are public files, so explicitly place them in WebGAL's
+    // figure namespace as well.
+    if (projectAssetPaths.has(sourcePath)) return;
+    try {
+      const response = await loadPublicResponse(sourcePath);
+      if (!response) {
+        warnings.push(`面部动效部件无法进入 WebGAL 实机：${sourcePath}`);
+        return;
+      }
+      await cache.put(new URL(`game/figure/${sourcePath}`, base).href, response);
+    } catch {
+      warnings.push(`面部动效部件无法进入 WebGAL 实机：${sourcePath}`);
+    }
+  }));
+
+  const timelineSource = project.assets.find((asset) => (
+    asset.kind === "voice" && typeof asset.metadata?.mouthTimelinePath === "string"
+  ));
+  const timelinePath = timelineSource?.metadata?.mouthTimelinePath;
+  if (typeof timelinePath === "string" && timelinePath.trim()) {
+    try {
+      const response = await loadPublicResponse(timelinePath);
+      if (!response) warnings.push(`口型时间线无法进入 WebGAL 实机：${timelinePath}`);
+      else await cache.put(new URL("game/face-motion/mouth-timeline.json", base).href, response);
+    } catch {
+      warnings.push(`口型时间线无法进入 WebGAL 实机：${timelinePath}`);
+    }
+  }
 }
 
 async function removeOldSessions(cache: Cache, currentBase: string): Promise<void> {
@@ -309,6 +374,7 @@ export async function prepareWebGalPreview(
       warnings.push(`素材无法进入实机预览：${asset.name}`);
     }
   }
+  await stageFaceMotionFiles(cache, base, project, warnings);
 
   return {
     url: new URL("index.html", base).href,
