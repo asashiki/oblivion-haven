@@ -4,6 +4,8 @@ import { slugify } from "../story/utils";
 export type WebGalLayerManifest = {
   schema: "galgame-face-motion/webgal-layered/v1";
   canvas: { width: number; height: number };
+  /** Runtime-relative path for the deterministic voice timeline used by the adapter. */
+  mouthTimelinePath?: string;
   figures: Record<string, {
     expressions: Record<string, {
       base: string;
@@ -22,6 +24,10 @@ export function buildWebGalLayerManifest(project: StoryProject): WebGalLayerMani
     figures: {},
     performance: [],
   };
+  const timelineAsset = project.assets.find((asset) => (
+    asset.kind === "voice" && typeof asset.metadata?.mouthTimelinePath === "string"
+  ));
+  if (timelineAsset) result.mouthTimelinePath = "game/face-motion/mouth-timeline.json";
   for (const character of project.characters) {
     const figureKey = `char-${slugify(character.name || character.id)}`;
     const expressions: WebGalLayerManifest["figures"][string]["expressions"] = {};
