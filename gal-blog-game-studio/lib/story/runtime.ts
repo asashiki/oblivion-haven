@@ -1,6 +1,7 @@
 import type {
   ChoiceOption,
   InputBlock,
+  PerformanceCue,
   StagePosition,
   StageTransform,
   StoryBlock,
@@ -9,6 +10,7 @@ import type {
   VariableOperation,
 } from "./types";
 import { deepClone, slugify } from "./utils";
+import { targetStagePosition, validateStagingPlan } from "./staging";
 
 export type RuntimeFigure = {
   characterId: string;
@@ -28,6 +30,10 @@ export type RuntimeState = {
   figures: RuntimeFigure[];
   variables: Record<string, boolean | number | string>;
   currentBlock?: StoryBlock;
+  /** Temporary semantic motions currently visible in the Studio preview. */
+  activeCues: PerformanceCue[];
+  /** after-line cues are applied on the same click that advances to the next stable state. */
+  pendingAfterCues: PerformanceCue[];
   waitingFor?: "advance" | "choice" | "input" | "blog" | "ai" | "end";
   log: Array<{ sceneId: string; blockId: string; label: string; text?: string }>;
 };
@@ -81,6 +87,8 @@ function enterScene(project: StoryProject, state: RuntimeState, sceneId: string,
   state.mode = scene.mode;
   state.currentBlock = undefined;
   state.waitingFor = undefined;
+  state.activeCues = [];
+  state.pendingAfterCues = [];
   if (scene.entryStage) {
     state.backgroundAssetId = scene.entryStage.backgroundAssetId;
     state.bgmAssetId = scene.entryStage.bgmAssetId;
@@ -109,6 +117,8 @@ export function createRuntime(project: StoryProject, sceneId = project.settings.
     bgmAssetId: scene?.entryStage?.bgmAssetId,
     figures: (scene?.entryStage?.figures || []).map((figure) => ({ ...figure, visible: true })),
     variables: initialVariables(project),
+    activeCues: [],
+    pendingAfterCues: [],
     log: [],
   };
   return state;
@@ -148,12 +158,43 @@ export function choiceEnabled(option: ChoiceOption, state: RuntimeState): boolea
   return evaluate(option.enabledCondition, state.variables);
 }
 
+function applyPerformanceCue(project: StoryProject, scene: NonNullable<StoryProject["scenes"][number]>, state: RuntimeState, cue: PerformanceCue): void {
+  state.activeCues.push(cue);
+  if (!cue.targetCharacterId) return;
+  const existing = state.figures.find((figure) => figure.characterId === cue.targetCharacterId);
+  if (["expression-change", "pose-change", "listener-react"].includes(cue.intent) && cue.expressionId && existing) {
+    existing.expressionId = cue.expressionId;
+  }
+  if (cue.intent === "enter") {
+    if (existing) {
+      existing.visible = true;
+      existing.expressionId = cue.expressionId || existing.expressionId;
+    } else {
+      state.figures.push({
+        characterId: cue.targetCharacterId,
+        expressionId: cue.expressionId || project.characters.find((item) => item.id === cue.targetCharacterId)?.defaultExpressionId,
+        position: targetStagePosition(scene, cue),
+        visible: true,
+      });
+    }
+  }
+  if (cue.intent === "exit" && existing) existing.visible = false;
+}
+
 export function stepRuntime(project: StoryProject, inputState: RuntimeState): RuntimeState {
   const state = cloneRuntime(inputState);
   const scene = project.scenes.find((item) => item.id === state.sceneId);
   if (!scene) {
     state.waitingFor = "end";
     return state;
+  }
+  const userAdvance = inputState.waitingFor === "advance";
+  if (userAdvance) {
+    state.waitingFor = undefined;
+    state.activeCues = [];
+    const pending = [...state.pendingAfterCues];
+    state.pendingAfterCues = [];
+    pending.forEach((cue) => applyPerformanceCue(project, scene, state, cue));
   }
   if (state.blockIndex >= scene.blocks.length) {
     const sourceIds = new Set(project.routeMap.nodes.filter((node) => node.sceneId === scene.id).map((node) => node.id));
@@ -172,6 +213,10 @@ export function stepRuntime(project: StoryProject, inputState: RuntimeState): Ru
   }
 
   const block = scene.blocks[state.blockIndex];
+  const staging = scene.staging?.enabled === false ? [] : validateStagingPlan(project, scene).plan.cues;
+  const blockCues = staging.filter((cue) => !cue.disabled && cue.blockId === block.id);
+  blockCues.filter((cue) => cue.timing !== "after-line").forEach((cue) => applyPerformanceCue(project, scene, state, cue));
+  state.pendingAfterCues = blockCues.filter((cue) => cue.timing === "after-line");
   state.currentBlock = block;
   state.blockIndex += 1;
   if (block.disabled) return stepRuntime(project, state);

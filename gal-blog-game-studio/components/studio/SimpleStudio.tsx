@@ -49,7 +49,6 @@ import {
   Search,
   Send,
   Sparkles,
-  TriangleAlert,
   Trash2,
   UploadCloud,
   UserRound,
@@ -97,6 +96,7 @@ import { routeDisplayPosition, routeStoredPosition } from "@/lib/story/routeLayo
 import { buildChapterMapClusters, routePositionFromChapterMap } from "@/lib/story/chapterMapLayout";
 import type {
   AssetKind,
+  PerformanceCue,
   RouteEdge,
   RouteNode,
   StagePosition,
@@ -2067,6 +2067,7 @@ function SimplePreviewWorkspace({
   const [webgalUrl, setWebgalUrl] = useState("");
   const [webgalStatus, setWebgalStatus] = useState("正在编译 WebGAL 实机…");
   const [webgalWarnings, setWebgalWarnings] = useState<string[]>([]);
+  const performanceCues = scene.staging?.cues || [];
   const [playerLanguage, setPlayerLanguage] = useState(() => {
     if (typeof window === "undefined") return "2";
     const saved = window.localStorage.getItem("lang");
@@ -2184,6 +2185,16 @@ function SimplePreviewWorkspace({
     if (dirtyBlockIds.size) return;
     setReplayStartBlockId(blockId);
     setRestartKey((value) => value + 1);
+  };
+
+  const updatePerformanceCues = (cues: PerformanceCue[], label: string) => {
+    onChange({
+      ...project,
+      scenes: project.scenes.map((item) => item.id === scene.id
+        ? { ...item, staging: { enabled: item.staging?.enabled !== false, cues, revision: (item.staging?.revision || 0) + 1 } }
+        : item),
+      updatedAt: nowIso(),
+    }, label);
   };
 
   const insertBlock = (at: number, kind: InsertBlockKind) => {
@@ -2318,6 +2329,29 @@ function SimplePreviewWorkspace({
       {scene && (
         <div className="simple-preview-layout" style={{ gridTemplateColumns: focusMode ? "minmax(0, 1fr)" : `${previewPane.width}px 8px minmax(680px, 1fr)` }}>
           <aside className="preview-editor-panel">
+            <section className="simple-performance-plan">
+              <header>
+                <div><strong>立绘演出计划</strong><small>默认保持不动，只在有剧情理由时执行小动作</small></div>
+              </header>
+              <div className="simple-performance-cues">
+                {performanceCues.length ? performanceCues.map((cue) => {
+                  const block = scene.blocks.find((item) => item.id === cue.blockId);
+                  const character = project.characters.find((item) => item.id === cue.targetCharacterId);
+                  const intent = {
+                    hold: "保持", enter: "轻入场", exit: "轻离场", "expression-change": "表情柔切", "pose-change": "姿势柔切",
+                    "listener-react": "听者反应", "micro-emphasis": "轻强调", "micro-recoil": "轻退", reframe: "重新构图",
+                  }[cue.intent];
+                  return (
+                    <article key={cue.id} className={cue.disabled ? "is-disabled" : ""}>
+                      <button className="simple-cue-play" onClick={() => replayFromBlock(cue.blockId)} title="从此处试玩"><Play size={11} /></button>
+                      <div><strong>{intent} · {character?.displayName || "画面"}</strong><p>{block?.type === "dialogue" || block?.type === "narration" ? block.text : block?.id}</p><small>{cue.timing === "before-line" ? "台词前" : cue.timing === "during-line" ? `台词中${cue.anchorText ? ` · “${cue.anchorText}”` : ""}` : "台词后"} · {cue.reason || "hold"}</small></div>
+                      <button onClick={() => updatePerformanceCues(performanceCues.map((item) => item.id === cue.id ? { ...item, disabled: !item.disabled } : item), cue.disabled ? "启用演出 Cue" : "停用演出 Cue")}>{cue.disabled ? "启用" : "停用"}</button>
+                      <button onClick={() => updatePerformanceCues(performanceCues.filter((item) => item.id !== cue.id), "删除演出 Cue")}><Trash2 size={11} /></button>
+                    </article>
+                  );
+                }) : <p className="simple-performance-empty">本段没有必要的可见动作。</p>}
+              </div>
+            </section>
             <section className="preview-block-editor">
               <header>
                 <strong>{workingScene.name}</strong>
@@ -2371,9 +2405,11 @@ function SimplePreviewWorkspace({
               </div>
             </div>
             <div className="webgal-live-stage">
-              {webgalUrl ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" /> : <div className="webgal-live-stage__loading"><Gamepad2 size={28} /><strong>{webgalStatus}</strong></div>}
+              {webgalUrl
+                ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" />
+                : <div className="webgal-live-stage__loading"><Gamepad2 size={28} /><strong>{webgalStatus}</strong></div>}
             </div>
-            {webgalWarnings.length > 0 && <button className="webgal-preview-warning" title={webgalWarnings.join(" · ")}><TriangleAlert size={13} /> {webgalWarnings.length}</button>}
+            {webgalWarnings.length > 0 && <p className="webgal-preview-warning" title={webgalWarnings.join(" · ")}>{webgalWarnings[0]}</p>}
           </main>
         </div>
       )}

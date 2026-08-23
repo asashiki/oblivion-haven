@@ -58,6 +58,29 @@ export type CharacterExpression = {
     eyesCloseAssetId?: Id;
     sourcePackageId?: string;
   };
+  /** Independent eye/mouth runtime package used by Studio's layered figure player. */
+  facialMotion?: {
+    manifestPath: string;
+    expressionId: string;
+    canvas?: { width: number; height: number };
+    parts?: {
+      eyes?: {
+        open?: FaceMotionPart;
+        half?: FaceMotionPart;
+        closed?: FaceMotionPart;
+      };
+      mouth?: {
+        closed?: FaceMotionPart;
+        half?: FaceMotionPart;
+        open?: FaceMotionPart;
+      };
+    };
+  };
+};
+
+export type FaceMotionPart = {
+  file: string;
+  rect: { x: number; y: number; width: number; height: number };
 };
 
 export type StoryCharacter = {
@@ -95,6 +118,50 @@ export type StageTransform = {
   rotation?: number;
   alpha?: number;
   zIndex?: number;
+};
+
+export type StagingIntent =
+  | "hold"
+  | "enter"
+  | "exit"
+  | "expression-change"
+  | "pose-change"
+  | "listener-react"
+  | "micro-emphasis"
+  | "micro-recoil"
+  | "reframe";
+
+export type StagingReason =
+  | "scene-entry"
+  | "explicit-physical-action"
+  | "emotional-turn"
+  | "addressed-listener"
+  | "reveal"
+  | "punchline"
+  | "shock"
+  | "scene-exit";
+
+export type PerformanceCue = {
+  id: Id;
+  /** The Story IR block whose click/voice lifecycle owns this cue. */
+  blockId: Id;
+  intent: StagingIntent;
+  targetCharacterId?: Id;
+  timing: "before-line" | "during-line" | "after-line";
+  intensity: "low" | "medium" | "high";
+  reason?: StagingReason;
+  expressionId?: Id;
+  /** Required for during-line cues unless an authored voice timestamp is available. */
+  anchorText?: string;
+  voiceTimeMs?: number;
+  disabled?: boolean;
+  source?: "human" | "ai" | "system";
+};
+
+export type StagingPlan = {
+  enabled: boolean;
+  cues: PerformanceCue[];
+  revision?: number;
 };
 
 export type BlockBase = {
@@ -346,6 +413,8 @@ export type StoryScene = {
       transform?: StageTransform;
     }>;
   };
+  /** Semantic performance plan. It is validated before preview or WebGAL compilation. */
+  staging?: StagingPlan;
   aiContext?: string;
 };
 

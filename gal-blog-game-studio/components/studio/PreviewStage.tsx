@@ -26,6 +26,10 @@ type Props = {
   sceneId: string;
   compact?: boolean;
   restartKey?: string | number;
+  engine?: "studio" | "webgal";
+  stagingEnabled?: boolean;
+  playbackMode?: "manual" | "auto" | "fast";
+  startBlockId?: string;
   onBridgeEvent?: (message: string) => void;
 };
 
@@ -33,10 +37,25 @@ function assetLabel(project: StoryProject, id?: string): string {
   return project.assets.find((asset) => asset.id === id)?.name || "未设置";
 }
 
-function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent }: Props) {
+function PreviewStageSession({
+  project,
+  sceneId,
+  compact = false,
+  stagingEnabled = true,
+  playbackMode = "manual",
+  startBlockId,
+  onBridgeEvent,
+}: Props) {
+  const runtimeProject = useMemo(() => ({
+    ...project,
+    scenes: project.scenes.map((scene) => scene.id === sceneId
+      ? { ...scene, staging: { enabled: stagingEnabled, cues: scene.staging?.cues || [], revision: scene.staging?.revision } }
+      : scene),
+  }), [project, sceneId, stagingEnabled]);
+  const startBlockIndex = Math.max(0, runtimeProject.scenes.find((scene) => scene.id === sceneId)?.blocks.findIndex((block) => block.id === startBlockId) ?? 0);
   const initialChapter = project.chapters.find((chapter) => chapter.sceneIds[0] === sceneId);
   const initialChapterIndex = initialChapter ? project.chapters.findIndex((chapter) => chapter.id === initialChapter.id) : -1;
-  const [runtime, setRuntime] = useState<RuntimeState>(() => stepRuntime(project, createRuntime(project, sceneId)));
+  const [runtime, setRuntime] = useState<RuntimeState>(() => stepRuntime(runtimeProject, createRuntime(runtimeProject, sceneId, startBlockIndex)));
   const [input, setInput] = useState("");
   const [showChapterIntro, setShowChapterIntro] = useState(Boolean(initialChapter));
   const [localAssetUrls, setLocalAssetUrls] = useState<Record<string, string>>({});
@@ -90,16 +109,25 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
       : undefined;
   const nvlLines = useMemo(() => runtime.log.slice(-5), [runtime.log]);
 
-  const advance = () => setRuntime((value) => stepRuntime(project, value));
+  const advance = () => setRuntime((value) => stepRuntime(runtimeProject, value));
   const reset = () => {
     setInput("");
-    setRuntime(stepRuntime(project, createRuntime(project, sceneId)));
+    setRuntime(stepRuntime(runtimeProject, createRuntime(runtimeProject, sceneId, startBlockIndex)));
   };
+
+  useEffect(() => {
+    if (playbackMode === "manual" || runtime.waitingFor !== "advance") return;
+    const timer = window.setTimeout(
+      () => setRuntime((value) => stepRuntime(runtimeProject, value)),
+      playbackMode === "fast" ? 520 : 1650,
+    );
+    return () => window.clearTimeout(timer);
+  }, [playbackMode, runtime.blockIndex, runtime.sceneId, runtime.waitingFor, runtimeProject]);
   const submitValue = (value: string) => {
     if (block?.type === "input" && block.targets.some((target) => target === "blog" || target === "ai")) {
       onBridgeEvent?.(`player-input → ${block.targets.join("+")}`);
     }
-    setRuntime((runtimeState) => submitInputRuntime(project, runtimeState, value));
+    setRuntime((runtimeState) => submitInputRuntime(runtimeProject, runtimeState, value));
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -109,7 +137,7 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
 
   const resolveBridge = (result: "success" | "failure" | "cancel") => {
     if (block?.type === "blog-action") onBridgeEvent?.(`${block.action} → ${result}`);
-    setRuntime((value) => resolveBlogRuntime(project, value, result));
+    setRuntime((value) => resolveBlogRuntime(runtimeProject, value, result));
   };
 
   return (
@@ -164,9 +192,13 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
           const previewScale = typeof figureAsset?.metadata?.previewScale === "number"
             ? figureAsset.metadata.previewScale
             : 1;
+          const cueClasses = runtime.activeCues
+            .filter((cue) => cue.targetCharacterId === figure.characterId)
+            .map((cue) => `preview-figure--cue-${cue.intent}`)
+            .join(" ");
           return (
             <div
-              className={`preview-figure preview-figure--${figure.position}`}
+              className={`preview-figure preview-figure--${figure.position} ${cueClasses}`}
               key={figure.characterId}
               style={{ "--figure-scale": previewScale } as React.CSSProperties}
             >
@@ -212,7 +244,7 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
           {visibleChoices(block, runtime).map((option) => {
             const enabled = choiceEnabled(option, runtime);
             return (
-              <button key={option.id} disabled={!enabled} onClick={() => setRuntime((value) => chooseRuntime(project, value, option.id))}>
+              <button key={option.id} disabled={!enabled} onClick={() => setRuntime((value) => chooseRuntime(runtimeProject, value, option.id))}>
                 <span>{option.label}</span>
                 {option.condition && <small>{option.condition}</small>}
                 <ChevronRight size={16} />
@@ -265,7 +297,7 @@ function PreviewStageSession({ project, sceneId, compact = false, onBridgeEvent 
           <div className="runtime-targets">
             {(block.allowedTools || []).slice(0, 6).map((tool) => <span key={tool}>{tool}</span>)}
           </div>
-          <button className="runtime-primary" onClick={() => setRuntime((value) => resolveAiRuntime(project, value))}>
+          <button className="runtime-primary" onClick={() => setRuntime((value) => resolveAiRuntime(runtimeProject, value))}>
             使用 fallback 继续 <ChevronRight size={16} />
           </button>
         </div>
@@ -418,5 +450,8 @@ function WebGalPreviewStage(props: Props) {
 }
 
 export function PreviewStage(props: Props) {
+  if (props.engine === "studio") {
+    return <PreviewStageSession key={`${props.sceneId}:${props.project.updatedAt}:${props.restartKey}:${props.startBlockId}:${props.stagingEnabled}`} {...props} />;
+  }
   return <WebGalPreviewStage {...props} />;
 }

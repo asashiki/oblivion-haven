@@ -169,6 +169,24 @@ function referencedAssets(project: StoryProject): StoryAsset[] {
   return project.assets.filter((asset) => scripts.includes(asset.path));
 }
 
+function layeredMotionFiles(project: StoryProject): Array<{ source: string; target: string }> {
+  const files = new Map<string, string>();
+  for (const character of project.characters) {
+    for (const expression of character.expressions) {
+      const parts = expression.facialMotion?.parts;
+      if (!parts) continue;
+      for (const part of [...Object.values(parts.eyes || {}), ...Object.values(parts.mouth || {})]) {
+        if (part?.file) files.set(part.file, `game/figure/${part.file}`);
+      }
+    }
+  }
+  const timeline = project.assets.find((asset) => (
+    asset.kind === "voice" && typeof asset.metadata?.mouthTimelinePath === "string"
+  ))?.metadata?.mouthTimelinePath;
+  if (typeof timeline === "string" && timeline) files.set(timeline, "game/face-motion/mouth-timeline.json");
+  return [...files].map(([source, target]) => ({ source, target }));
+}
+
 function publicScenes(project: StoryProject) {
   const replayableIds = new Set(project.routeMap.nodes
     .filter((node) => node.sceneId && node.replayable === true && !node.hiddenFromPlayer)
@@ -523,6 +541,9 @@ function runtimeIndex(project: StoryProject, runtime: WebGalRuntimeManifest, inl
       window.__GAL_BLOG_LAUNCH__={projectId:${JSON.stringify(project.id)},startScene:launch.scenePath,gameDir:"./game/"};
       window.__TUANCHAT_WEBGAL__={autoStart:true,startScene:launch.scenePath,gameDir:"./game/"};
       const engine=await import("./vendor/webgal/${runtime.entry}");
+      const layerManifest=await fetch("./game/face-motion/layers.json",{cache:"no-store"}).then(response=>response.ok?response.json():null).catch(()=>null);
+      const faceMotionAdapter=await import("./game/extensions/face-motion-adapter.js");
+      faceMotionAdapter.attach?.(engine.W,layerManifest);
       await window.GalBlogBridgeV1.attachWebGAL(engine.W);
       await import("./game/extensions/entry.js");
       status?.remove();
@@ -587,6 +608,11 @@ export async function buildRuntimePackage(
     if (!bytes) throw new Error(`已引用素材无法写入导出包：${asset.name}（${asset.id}）`);
     addEntry(entries, exportAssetPath(asset), bytes);
   }
+  for (const file of layeredMotionFiles(project)) {
+    const bytes = assetFiles[`face-motion:${file.source}`];
+    if (!bytes) throw new Error(`面部动效资源无法写入导出包：${file.source}`);
+    addEntry(entries, file.target, bytes);
+  }
   const seed = manifestSeed(project, origins);
   const fingerprints = [];
   for (const [path, bytes] of Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))) fingerprints.push({ path, sha256: await sha256(bytes), bytes: bytes.byteLength });
@@ -634,7 +660,7 @@ async function fetchRuntime(): Promise<{ manifest: WebGalRuntimeManifest; files:
 }
 
 async function readAssetFiles(project: StoryProject): Promise<Record<string, Bytes>> {
-  const pairs = await Promise.all(referencedAssets(project).map(async (asset) => {
+  const assetPairs = await Promise.all(referencedAssets(project).map(async (asset) => {
     let bytes: Bytes | undefined;
     if (asset.metadata?.localFile) {
       const stored = await readLocalAssetFile(asset.id);
@@ -649,7 +675,12 @@ async function readAssetFiles(project: StoryProject): Promise<Record<string, Byt
     if (!bytes) throw new Error(`已引用素材无法读取：${asset.name}（${asset.id}）`);
     return [asset.id, bytes] as const;
   }));
-  return Object.fromEntries(pairs);
+  const motionPairs = await Promise.all(layeredMotionFiles(project).map(async (file) => {
+    const response = await fetch(`/${file.source.replace(/^\/+/, "")}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`面部动效资源无法读取：${file.source}`);
+    return [`face-motion:${file.source}`, new Uint8Array(await response.arrayBuffer())] as const;
+  }));
+  return Object.fromEntries([...assetPairs, ...motionPairs]);
 }
 
 export async function createRuntimeZipWithAssets(project: StoryProject, options: RuntimeExportOptions = {}): Promise<RuntimePackage> {

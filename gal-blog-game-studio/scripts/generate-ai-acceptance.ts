@@ -121,6 +121,7 @@ async function addDialogue(
     enter?: { name: string; durationMs: number; easing?: string };
   } = {},
 ) {
+  const before = new Set(project.scenes.find((scene) => scene.id === sceneId)?.blocks.map((block) => block.id));
   await run({
     name: "add_dialogue",
     arguments: {
@@ -130,6 +131,13 @@ async function addDialogue(
       ...options,
     },
   });
+  const block = project.scenes.find((scene) => scene.id === sceneId)?.blocks.find((item) => !before.has(item.id));
+  if (!block) throw new Error("add_dialogue 没有返回新对白块");
+  return block.id;
+}
+
+async function planStaging(sceneId: string, cues: Array<Record<string, unknown>>) {
+  await run({ name: "plan_staging", arguments: { sceneId, enabled: true, cues } });
 }
 
 async function connect(sourceSceneId: string, targetSceneId: string, label: string) {
@@ -161,7 +169,7 @@ await addDialogue(arrival, "你比约定早了十一分钟，主人。", {
   enter: { name: "enter-from-right", durationMs: 520, easing: "easeOut" },
 });
 await addDialogue(arrival, "不是坏事。只是门铃响起的时候，我还在想——今天要先问候你，还是先把茶端上来。");
-await addDialogue(arrival, "现在看来，茶可以等一等。你握着门把的样子，比平时用力。");
+const arrivalTurn = await addDialogue(arrival, "现在看来，茶可以等一等。你握着门把的样子，比平时用力。");
 await addDialogue(arrival, "如果还没想好从哪里说起，就由你选一个比较容易的开头吧。");
 await run({
   name: "add_choice",
@@ -189,7 +197,7 @@ await addDialogue(confession, "那就从今天开始。不用从最正确的地�
 });
 await addDialogue(confession, "你可以只告诉我，哪一个瞬间最想立刻离开。");
 await addDialogue(confession, "……原来如此。你不是不知道该怎么做，只是不想让任何人失望。");
-await addDialogue(confession, "可如果连你自己也被排在最后，这份体贴迟早会变成一张没人敢拆的欠条。");
+const confessionTurn = await addDialogue(confession, "可如果连你自己也被排在最后，这份体贴迟早会变成一张没人敢拆的欠条。");
 await addDialogue(confession, "要继续说下去，还是先回到茶桌旁？两种都不算逃避。");
 await run({
   name: "add_choice",
@@ -210,7 +218,7 @@ await configureScene({
   position: "center",
   transform: { x: 0, y: 34, scale: 0.94 },
 });
-await addDialogue(tea, "报告主人：红茶没有生气，只是已经等得开始怀疑自己的冲泡时间。", {
+const teaPose = await addDialogue(tea, "报告主人：红茶没有生气，只是已经等得开始怀疑自己的冲泡时间。", {
   expressionId: "expr_alice_chibi_normal",
   position: "center",
   enter: { name: "enter-from-bottom", durationMs: 420, easing: "backOut" },
@@ -242,10 +250,51 @@ await addDialogue(promise, "谢谢你愿意说到这里。剩下的部分，不�
   position: "right",
   enter: { name: "enter", durationMs: 360, easing: "easeOut" },
 });
-await addDialogue(promise, "我们只约定一件事：明天醒来以后，先替自己决定一件真正重要的事。");
+const promiseTurn = await addDialogue(promise, "我们只约定一件事：明天醒来以后，先替自己决定一件真正重要的事。");
 await addDialogue(promise, "不是最紧急的，也不是别人最期待的。只是一件你愿意承认重要的事。");
 await addDialogue(promise, "我会把空白留在这张书签上。等你想写的时候，再交给我。");
 await addDialogue(promise, "现在，红茶的温度刚好。欢迎回来，主人。");
+
+await planStaging(arrival, [{
+  id: "cue_arrival_turn",
+  blockId: arrivalTurn,
+  intent: "micro-emphasis",
+  targetCharacterId: "char_alice",
+  timing: "during-line",
+  intensity: "low",
+  reason: "emotional-turn",
+  anchorText: "比平时用力",
+}]);
+await planStaging(confession, [{
+  id: "cue_confession_turn",
+  blockId: confessionTurn,
+  intent: "micro-emphasis",
+  targetCharacterId: "char_alice",
+  timing: "during-line",
+  intensity: "low",
+  reason: "emotional-turn",
+  anchorText: "连你自己也被排在最后",
+}]);
+await planStaging(tea, [{
+  id: "cue_tea_pose",
+  blockId: teaPose,
+  intent: "pose-change",
+  targetCharacterId: "char_alice",
+  expressionId: "expr_alice_chibi_normal",
+  timing: "before-line",
+  intensity: "medium",
+  reason: "punchline",
+}]);
+await planStaging(promise, [{
+  id: "cue_promise_turn",
+  blockId: promiseTurn,
+  intent: "micro-emphasis",
+  targetCharacterId: "char_alice",
+  timing: "during-line",
+  intensity: "low",
+  reason: "emotional-turn",
+  anchorText: "先替自己决定",
+}]);
 
 await connect(arrival, confession, "先说今天");
 await connect(arrival, tea, "先让茶醒");

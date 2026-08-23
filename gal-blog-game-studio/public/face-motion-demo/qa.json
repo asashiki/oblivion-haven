@@ -1,0 +1,52 @@
+{
+  "guide": {
+    "sourceSha256": "ea92b7ec1fca9f9670e2d7288d60dbd02a0bb3f2cd5ce072e0971379106cd670",
+    "eyePairSha256": "b8378a678ff587f81e850eb60f7c6170765a10ecaecab1b8882731d2c0cdba47",
+    "mouthPairSha256": "b6ed9a7e8ae2c1b6179e60bf36259c33af32519e6a0ef975bd270fee906ef45c",
+    "eyeHalf": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 8888,
+      "alpha_changed_pixels": 0
+    },
+    "eyeClosed": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 8905,
+      "alpha_changed_pixels": 0
+    },
+    "mouthHalf": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 2284,
+      "alpha_changed_pixels": 0
+    },
+    "mouthOpen": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 2297,
+      "alpha_changed_pixels": 0
+    }
+  },
+  "welcome": {
+    "sourceSha256": "b788b0c863e1cb13747e468f1984c6c8ce3e2eb8a4ca3068de1b37440e9f488e",
+    "eyePairSha256": "5a73b1895084687f16ba31845d0153b6655ed1e8fe403c2ecb70760bf5fb338b",
+    "mouthPairSha256": "e5c6d7a10f38fe60b19c35de3ee1099d28321393322869351b28fe997f47dc31",
+    "eyeHalf": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 8055,
+      "alpha_changed_pixels": 0
+    },
+    "eyeClosed": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 8073,
+      "alpha_changed_pixels": 0
+    },
+    "mouthHalf": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 3299,
+      "alpha_changed_pixels": 0
+    },
+    "mouthOpen": {
+      "outside_mask_changed_pixels": 0,
+      "inside_mask_changed_pixels": 3292,
+      "alpha_changed_pixels": 0
+    }
+  }
+}
