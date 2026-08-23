@@ -1,5 +1,7 @@
 export const WEBGAL_FACE_MOTION_ADAPTER_SOURCE = `
-const normalizePath = (value) => String(value || "").replace(/^\\/+/, "").replace(/^.*?\\/game\\/figure\\//, "");
+const normalizePath = (value) => String(value || "")
+  .replace(/^\\/+/, "")
+  .replace(/^.*?\\/?game\\/figure\\//, "");
 // WebGAL's compiler resolves figure resources to ./game/figure/<asset path>.
 // The layered manifest stores the project-relative asset path, so adapter
 // loads must go through the same resource namespace or the patch texture is
@@ -28,6 +30,7 @@ const loadTexture = (stage, path, done) => {
     normalized,
     figureResourcePath(path),
     "./" + figureResourcePath(path).replace(/^\.\//, ""),
+    "/" + normalized,
   ])];
   let index = 0;
   const tryNext = () => {
@@ -101,7 +104,20 @@ const swapExpression = (stage, key, expressionId, manifest) => {
   });
 };
 export function attach(core, manifest) {
-  const resolveStage = () => core?.gameplay?.pixiStage || core?.pixiStage || null;
+  // The bundled WebGAL module exports the engine singleton, but depending on
+  // the load order it can be published before gameplay.pixiStage exists. Keep
+  // resolving the live singleton instead of freezing an empty import-time
+  // reference; otherwise the adapter installs successfully yet never reaches
+  // the stage that renders the figure.
+  const resolveCore = () => core
+    || globalThis.WebGAL
+    || globalThis.__WEBGAL__
+    || globalThis.__WEBGAL_CORE__
+    || null;
+  const resolveStage = () => {
+    const runtime = resolveCore();
+    return runtime?.gameplay?.pixiStage || runtime?.pixiStage || null;
+  };
   const install = (stage) => {
     if (!stage) return false;
     if (stage.__galBlogFaceMotionAttached) return true;
