@@ -89,11 +89,22 @@ const navItems: Array<{ id: View; label: string; icon: typeof Layers3 }> = [
   { id: "export", label: "编译与导出", icon: FileArchive },
 ];
 
+function ensureBundledMotionMvp(project: StoryProject): StoryProject {
+  if (project.id !== maidMotionProject.id) return project;
+  const hasLayeredMotion = project.characters.some((character) => character.expressions.some((expression) => (
+    Boolean(expression.facialMotion?.parts)
+    && project.assets.some((asset) => asset.id === expression.assetId)
+  )));
+  const hasTimeline = project.assets.some((asset) => asset.metadata?.mouthTimelinePath === "face-motion-demo/mouth-timeline.json");
+  return hasLayeredMotion && hasTimeline ? project : deepClone(maidMotionProject);
+}
+
 function loadInitialProject(): StoryProject {
   if (typeof window === "undefined") return migrateStoryProject(deepClone(maidMotionProject));
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return migrateStoryProject(saved ? parseStoryProject(JSON.parse(saved)) : deepClone(maidMotionProject));
+    const project = saved ? parseStoryProject(JSON.parse(saved)) : deepClone(maidMotionProject);
+    return migrateStoryProject(ensureBundledMotionMvp(project));
   } catch {
     return migrateStoryProject(deepClone(maidMotionProject));
   }
