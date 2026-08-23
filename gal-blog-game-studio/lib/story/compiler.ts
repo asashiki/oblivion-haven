@@ -1137,6 +1137,10 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
       faceMotionAdapter.attach?.(core, layerManifest);
       window.GalBlogBridge?.attachWebGAL(core);
       status?.remove();
+      // The bundled WebGAL runtime does not know about this preview handshake.
+      // Resolve it here, after the engine and face adapter are installed, so
+      // the preview can actually reach its start gate and launch the scene.
+      window.renderPromiseResolve?.();
     } catch (error) {
       if (status) status.textContent = "WEBGAL LOAD ERROR · " + (error instanceof Error ? error.message : String(error));
       console.error("[Gal Blog Studio] WebGAL load failed", error);
