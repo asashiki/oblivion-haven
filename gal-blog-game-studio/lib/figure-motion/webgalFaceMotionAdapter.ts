@@ -109,14 +109,18 @@ export function attach(core, manifest) {
   // resolving the live singleton instead of freezing an empty import-time
   // reference; otherwise the adapter installs successfully yet never reaches
   // the stage that renders the figure.
-  const resolveCore = () => core
-    || globalThis.WebGAL
-    || globalThis.__WEBGAL__
-    || globalThis.__WEBGAL_CORE__
-    || null;
+  const runtimeCandidates = () => [
+    core,
+    globalThis.WebGAL,
+    globalThis.__WEBGAL__,
+    globalThis.__WEBGAL_CORE__,
+  ].filter(Boolean);
   const resolveStage = () => {
-    const runtime = resolveCore();
-    return runtime?.gameplay?.pixiStage || runtime?.pixiStage || null;
+    for (const runtime of runtimeCandidates()) {
+      const stage = runtime?.gameplay?.pixiStage || runtime?.pixiStage;
+      if (stage) return stage;
+    }
+    return null;
   };
   const install = (stage) => {
     if (!stage) return false;
