@@ -1023,8 +1023,7 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
         };
         check();
       });
-      window.__GAL_BLOG_ENGINE_RENDERED__
-        .then(async () => {
+      const launchWebGal = async () => {
           const enterTarget = await waitFor(() => document.querySelector(".title__enter-game-target"));
           click(enterTarget);
           const startButton = await waitFor(() => Array.from(document.querySelectorAll("div")).find((element) => {
@@ -1038,6 +1037,19 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
             type: "webgal-preview-started",
             sceneId: ${JSON.stringify(project.settings.startSceneId)}
           }, "*");` : ""}
+      };
+      window.__GAL_BLOG_ENGINE_RENDERED__
+        .then(() => {
+          ${previewMode ? `
+          const startGate = document.createElement("button");
+          startGate.id = "galblog-user-start";
+          startGate.type = "button";
+          startGate.textContent = "点击启动 WebGAL 实机（启用语音）";
+          startGate.addEventListener("click", () => {
+            startGate.remove();
+            void launchWebGal();
+          }, { once: true });
+          document.body.appendChild(startGate);` : `void launchWebGal();`}
         })
         .catch((error) => {
           if (status) status.textContent = "WEBGAL PREVIEW START ERROR · " + (error instanceof Error ? error.message : String(error));
@@ -1060,6 +1072,8 @@ function compileIndex(project: StoryProject, options: CompileProjectOptions = {}
     #galblog-language-gate button{min-width:96px;border:0;border-radius:11px;padding:12px 16px;background:transparent;color:#d9dce7;font:600 14px system-ui;cursor:pointer}
     #galblog-language-gate button:first-child,#galblog-language-gate button:hover{background:#fff;color:#171922}
     #galblog-engine-status{position:absolute;left:50%;top:50%;z-index:101;width:18px;height:18px;border:2px solid #ffffff26;border-top-color:#fff;border-radius:50%;transform:translate(-50%,-50%);animation:galblog-spin .8s linear infinite;font-size:0}
+    #galblog-user-start{position:fixed;left:50%;top:50%;z-index:2147483646;transform:translate(-50%,-50%);border:1px solid #ffffff45;border-radius:14px;padding:16px 22px;background:#171a27;color:#fff;box-shadow:0 16px 60px #0009;font:600 16px system-ui,sans-serif;cursor:pointer}
+    #galblog-user-start:hover{background:#282d43}
     @keyframes galblog-spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
   </style>
   ${engineCssUrl ? `<link rel="stylesheet" crossorigin href="${engineCssUrl.replace(/["<>&]/g, "")}" />` : ""}
