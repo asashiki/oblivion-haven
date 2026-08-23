@@ -22,11 +22,30 @@ const findExpression = (manifest, key, sourceUrl) => {
 };
 const loadTexture = (stage, path, done) => {
   if (!path) return done(null);
-  const resourcePath = figureResourcePath(path);
-  const cached = stage.assetLoader?.resources?.[resourcePath]?.texture;
-  if (cached) return done(cached);
-  try { stage.loadAsset(resourcePath, () => done(stage.assetLoader?.resources?.[resourcePath]?.texture || null)); }
-  catch (_) { done(null); }
+  const normalized = normalizePath(path);
+  const candidates = [...new Set([
+    path,
+    normalized,
+    figureResourcePath(path),
+    "./" + figureResourcePath(path).replace(/^\.\//, ""),
+  ])];
+  let index = 0;
+  const tryNext = () => {
+    const resourcePath = candidates[index++];
+    if (!resourcePath) return done(null);
+    const cached = stage.assetLoader?.resources?.[resourcePath]?.texture;
+    if (cached) return done(cached);
+    try {
+      stage.loadAsset(resourcePath, () => {
+        const texture = stage.assetLoader?.resources?.[resourcePath]?.texture;
+        if (texture) return done(texture);
+        tryNext();
+      });
+    } catch (_) {
+      tryNext();
+    }
+  };
+  tryNext();
 };
 const ensureLayer = (container, name, SpriteCtor) => {
   container.__galBlogFaceLayers ||= {};
@@ -89,24 +108,74 @@ export function attach(core, manifest) {
     stage.__galBlogFaceMotionAttached = true;
   stage.performMouthSyncAnimation = (key, _item, state) => setLayer(stage, key, "mouth", state === "open" ? "open" : state === "half_open" ? "half" : "closed", manifest);
   stage.performBlinkAnimation = (key, _item, state) => setLayer(stage, key, "eyes", state === "closed" ? "closed" : "open", manifest);
-  const scheduled = new WeakMap();
-  const onPlay = (event) => {
-    const audio = event.target;
-    if (!(audio instanceof HTMLMediaElement) || audio.id !== "currentVocal") return;
-    for (const cue of manifest?.performance || []) {
-      const token = cue.key + ":" + cue.atMs + ":" + cue.toExpressionId;
-      if (scheduled.get(audio)?.has(token)) continue;
-      const timers = scheduled.get(audio) || new Set();
-      timers.add(token); scheduled.set(audio, timers);
-      window.setTimeout(() => {
-        const object = stage.getStageObjByKey?.(cue.key);
-        const current = object?.pixiContainer?.__galBlogFaceExpressionId || object?.expressionId;
-        if (!cue.fromExpressionId || current === cue.fromExpressionId || !current) swapExpression(stage, cue.key, cue.toExpressionId, manifest);
-      }, Math.max(0, cue.atMs));
-    }
-  };
-    document.addEventListener("play", onPlay, true);
-    globalThis.GalBlogFaceMotion = { stage, manifest };
+    const timelinePromise = manifest?.mouthTimelinePath
+      ? fetch("./game/face-motion/mouth-timeline.json", { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null)
+      : Promise.resolve(null);
+    const audioStates = new WeakMap();
+    const hash = (value) => [...String(value)].reduce((total, char) => (total * 31 + char.charCodeAt(0)) % 10000, 7);
+    const blinkStateAt = (key, timeMs) => {
+      const phase = (timeMs + hash(key) * 13) % 5200;
+      if (phase < 42) return "half";
+      if (phase < 118) return "closed";
+      return "open";
+    };
+    const mouthStateAt = (timeline, timeMs) => {
+      const segment = timeline?.segments?.find((item) => timeMs >= item.startMs && timeMs < item.endMs);
+      return segment?.state || "closed";
+    };
+    const resetLayers = () => {
+      for (const key of Object.keys(manifest?.figures || {})) {
+        setLayer(stage, key, "mouth", "closed", manifest);
+        setLayer(stage, key, "eyes", "open", manifest);
+      }
+    };
+    const driveLayers = async () => {
+      const timeline = await timelinePromise;
+      const tick = () => {
+        const audio = document.getElementById("currentVocal");
+        if (audio && !audio.paused) {
+          const timeMs = audio.currentTime * 1000;
+          let state = audioStates.get(audio);
+          if (!state || timeMs < state.lastTimeMs - 100) state = { applied: new Set(), layers: new Map(), lastTimeMs: -1, normalized: false };
+          state.lastTimeMs = timeMs;
+          state.normalized = false;
+          for (const key of Object.keys(manifest?.figures || {})) {
+            for (const cue of manifest?.performance || []) {
+              if (cue.key !== key || timeMs < cue.atMs) continue;
+              const token = cue.key + ":" + cue.atMs + ":" + cue.toExpressionId;
+              if (state.applied.has(token)) continue;
+              swapExpression(stage, cue.key, cue.toExpressionId, manifest);
+              state.applied.add(token);
+            }
+            const layers = state.layers.get(key) || {};
+            const mouth = mouthStateAt(timeline, timeMs);
+            const eyes = blinkStateAt(key, timeMs);
+            if (layers.mouth !== mouth) {
+              setLayer(stage, key, "mouth", mouth, manifest);
+              layers.mouth = mouth;
+            }
+            if (layers.eyes !== eyes) {
+              setLayer(stage, key, "eyes", eyes, manifest);
+              layers.eyes = eyes;
+            }
+            state.layers.set(key, layers);
+          }
+          audioStates.set(audio, state);
+        } else if (audio) {
+          const state = audioStates.get(audio);
+          if (!state?.normalized) {
+            resetLayers();
+            audioStates.set(audio, { ...(state || { applied: new Set(), layers: new Map(), lastTimeMs: -1 }), normalized: true });
+          }
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    };
+    globalThis.GalBlogFaceMotion = { stage, manifest, status: "installed" };
+    void driveLayers();
     return true;
   };
   const stage = resolveStage();
