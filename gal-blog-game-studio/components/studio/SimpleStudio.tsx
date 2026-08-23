@@ -2680,7 +2680,6 @@ export function SimpleStudio({
           <div className="simple-save-state"><Save size={13} /><span>{savedAt}</span></div>
           <button className="icon-soft" onClick={onUndo} disabled={!canUndo} title="撤销"><Undo2 size={16} /></button>
           <button className="icon-soft" onClick={onRedo} disabled={!canRedo} title="重做"><Redo2 size={16} /></button>
-          <a className="simple-face-motion-entry" href="/face-motion-lab"><Film size={14} /> 面部动效</a>
           <button className="simple-top-preview" onClick={() => setSection("preview")}><Play size={14} fill="currentColor" /> 试玩</button>
           <button className="simple-top-export" onClick={() => setExportOpen(true)}><Download size={14} /> 导出</button>
         </div>
