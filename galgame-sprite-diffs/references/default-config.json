@@ -1,0 +1,200 @@
+{
+  "$schema": "./config.schema.json",
+  "schema_version": 3,
+  "character": {
+    "slug": "character",
+    "description": "",
+    "reference_images": [],
+    "style_note": "Clean 2D visual-novel character art; when references are supplied, preserve their original drawing style, apparent age, facial structure, and stylized body proportions.",
+    "preserve": [],
+    "avoid": []
+  },
+  "render": {
+    "size": "1024x1536",
+    "quality": "high",
+    "safe_margin_percent": 6,
+    "anchor": "bottom-center",
+    "reference_pose": "A calm, plain, front-facing or nearly front-facing standard full-body model-reference stance, feet stable, arms relaxed, and both hands visible."
+  },
+  "pose_design": {
+    "character_traits": [],
+    "energy": 0.35,
+    "openness": 0.35,
+    "formality": 0.55,
+    "shyness": 0.35,
+    "gesture_amplitude": "low",
+    "signature_gesture": "",
+    "side_turn_direction": "auto",
+    "forbidden_gestures": [
+      "jumping",
+      "arms spread wide",
+      "pointing at the viewer"
+    ]
+  },
+  "chroma_key": {
+    "mode": "auto",
+    "preferred": "#fc5d21",
+    "candidates": [
+      "#fc5d21",
+      "#00ff66",
+      "#ff00ff",
+      "#00d9ff",
+      "#7d00ff",
+      "#fff200"
+    ],
+    "transparent_distance": 28,
+    "opaque_distance": 175,
+    "edge_radius": 2,
+    "scope": "all",
+    "soft_matte": true,
+    "despill": true
+  },
+  "poses": [
+    {
+      "id": "idle",
+      "label": "自然交流",
+      "instruction": "Create a character-specific conversational idle with clear relaxed asymmetry: shift the weight onto one leg, keep one hand near the torso, and let the other make a small open conversational gesture. It must not resemble the rigid standard reference stance.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "idle"
+      }
+    },
+    {
+      "id": "side",
+      "label": "侧身回应",
+      "instruction": "Create the group's clearly distinct side-leaning three-quarter pose. Turn and lean the torso and hips about 25–35 degrees to either the left or right, angle the face coherently by about 10–20 degrees, then keep the pupils looking directly toward the viewer. Shift the weight and feet, and make the shoulders, torso, hips, skirt or coat, hair overlap, and balance follow the same turn. Keep the full face readable; do not become a profile.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "side"
+      }
+    },
+    {
+      "id": "reserved",
+      "label": "内收思绪",
+      "instruction": "Create a visibly inward pose distinct from both idle and side: gather both hands close to the torso or lightly together, draw the shoulders in slightly, narrow the stance, and use a small counter-tilt of the head or upper body. Keep the pose reusable and neutral rather than encoding sadness or shyness into the face.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "reserved"
+      }
+    }
+  ],
+  "expressions": [
+    {
+      "id": "laugh",
+      "label": "开心大笑",
+      "pose": "side",
+      "instruction": "Show unmistakable joyful laughter. Keep both eyes naturally closed into happy crescents and preserve the pronounced side pose. Use a lively but controlled resting laugh mouth that can still support nearby speaking-mouth variants.",
+      "runtime": {
+        "blink": "fixed-closed",
+        "mouth_sync": true,
+        "extra_states": [],
+        "mask_profile": "side"
+      }
+    },
+    {
+      "id": "thinking",
+      "label": "闭眼思考",
+      "pose": "side",
+      "instruction": "Show calm closed-eye thinking or quiet reflection. Keep both eyes fully and naturally closed, relax the eyebrows, and use a small contemplative resting mouth. Do not add symbols, sweat, or a hand touching the face unless the approved side pose already contains it.",
+      "runtime": {
+        "blink": "fixed-closed",
+        "mouth_sync": true,
+        "extra_states": [],
+        "mask_profile": "side"
+      }
+    },
+    {
+      "id": "angry",
+      "label": "生气",
+      "pose": "idle",
+      "instruction": "Keep both eyes open. Angle the eyebrows down toward the center and add a restrained low-volume pout or frown. Make the anger cute and clearly readable without adding symbols or effects.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "idle"
+      }
+    },
+    {
+      "id": "sad",
+      "label": "悲伤",
+      "pose": "reserved",
+      "instruction": "Keep both eyes open with subtly moist highlights. Raise the inner eyebrows and add a small low-volume downturned mouth for a clearly sad, vulnerable expression. Do not add falling tears or effects.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "reserved"
+      }
+    },
+    {
+      "id": "surprised",
+      "label": "惊讶",
+      "pose": "side",
+      "instruction": "Open both eyes wider and use a small rounded low-volume mouth. Make the surprise clear but cute, with no symbols, sweat, or motion lines.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "side"
+      }
+    },
+    {
+      "id": "shy",
+      "label": "害羞",
+      "pose": "reserved",
+      "instruction": "Add a soft warm blush across both cheeks, slightly lower or avert the gaze while keeping the eyes open, and use a tiny hesitant low-volume smile. Add no sweat or symbols.",
+      "runtime": {
+        "blink": "dynamic",
+        "mouth_sync": true,
+        "extra_states": ["eyes_half"],
+        "mask_profile": "reserved"
+      }
+    }
+  ],
+  "runtime": {
+    "engine": "webgal-image",
+    "mask_feather_px": 4,
+    "states": {
+      "eyes_half": "Change only the two eyes into a natural half-closed eyelid state. Keep each eye's original inner and outer corner at the supplied exact anchors, keep the new lid midpoint inside the original eye aperture, and preserve the original inter-eye spacing, perspective, scale relationship, gaze, and emotional corner direction. Fully remove the original full-open upper/lower eye contours before redrawing the smaller aperture; leave no old upper-lash arc or faint duplicate outline above the new lid. Make it useful both as a blink transition preview and as a reusable half-lidded mood differential; it is not a WebGAL blink requirement.",
+      "eyes_close": "Change only the two eyes into a clean, natural fully closed blink frame. Keep each eye's original inner and outer corner at the supplied exact anchors, keep the new closed-lid midpoint inside the original eye aperture, and preserve the original inter-eye spacing, perspective, scale relationship, gaze, and emotional corner direction. Fully remove the original irises, sclerae, upper/lower eye contours, lashes, and antialiased shadows before drawing exactly one new closed-lid curve per eye. Draw no eyelid crease, fold, highlight line, shadow line, second arc, or faint duplicate stroke. Preserve the existing eyebrows, mouth, face angle, and emotional intent.",
+      "mouth_half_open": "Change only the mouth into a modest half-open speaking frame. Preserve the expression and mouth-corner direction. Keep the opening restrained.",
+      "mouth_open": "Change only the mouth into a speaking frame just one small step more open than mouth_half_open. Do not create a dramatically larger mouth, shout, scream, or exaggerated laugh."
+    }
+  },
+  "qa": {
+    "face_box": [0.22, 0.02, 0.78, 0.24],
+    "variant_retry_limit": 1,
+    "outside_face_alpha_iou_warn_below": 0.92,
+    "outside_face_rgb_mean_warn_above": 24.0,
+    "runtime_min_inside_changed_pixels": 8
+  },
+  "workflow": {
+    "pause_after_base": true,
+    "require_explicit_base_approval": true,
+    "pause_after_poses": true,
+    "require_explicit_pose_approval": true,
+    "pause_after_expressions": true,
+    "require_explicit_expression_approval": true,
+    "generate_poses_separately": true,
+    "generate_expressions_separately": true,
+    "generate_runtime_states_separately": true
+  },
+  "output": {
+    "work_dir": "work",
+    "deliverables_dir": "deliverables",
+    "keep_chroma_sources": true,
+    "keep_working_files": true,
+    "keep_local_parts": true,
+    "export_local_parts": true,
+    "include_compositor_runtime": true,
+    "make_contact_sheet": false,
+    "make_demo_gifs": false
+  }
+}

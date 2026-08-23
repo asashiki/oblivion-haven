@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galgame 立绘合成预览</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; grid-template-columns: minmax(280px, 1fr) 320px; background: #17141f; color: #f7f2ff; }
+      main { display: grid; place-items: center; padding: 24px; background: linear-gradient(135deg, #e8e3ef 25%, #d5cddd 25% 50%, #e8e3ef 50% 75%, #d5cddd 75%); background-size: 32px 32px; }
+      canvas { max-width: 100%; max-height: calc(100vh - 48px); width: auto; height: auto; object-fit: contain; }
+      aside { padding: 24px; background: #211b2d; box-shadow: -12px 0 40px #0007; }
+      h1 { margin: 0 0 8px; font-size: 22px; }
+      p { color: #cfc4db; line-height: 1.55; }
+      label { display: grid; gap: 6px; margin: 16px 0; font-size: 13px; color: #cfc4db; }
+      select, button { width: 100%; padding: 10px 12px; border: 1px solid #594b69; border-radius: 8px; background: #30263f; color: white; }
+      button { cursor: pointer; margin-top: 8px; }
+      button:hover { background: #463454; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      #status { min-height: 1.5em; color: #dba8ff; }
+      @media (max-width: 780px) { body { grid-template-columns: 1fr; } aside { box-shadow: 0 -12px 40px #0007; } }
+    </style>
+  </head>
+  <body>
+    <main><canvas id="sprite"></canvas></main>
+    <aside>
+      <h1>立绘实时合成</h1>
+      <p>透明母版 + 精确坐标眼嘴替换片。这里的每一帧都是实时合成，不是 GIF。</p>
+      <label>角色状态<select id="figure"></select></label>
+      <label>眼睛<select id="eyes"></select></label>
+      <label>嘴巴<select id="mouth"></select></label>
+      <div class="row">
+        <button id="speak">说话 3 秒</button>
+        <button id="blink">开启眨眼</button>
+      </div>
+      <button id="download">下载当前透明 PNG</button>
+      <p id="status"></p>
+    </aside>
+    <script type="module">
+      import { GalSpriteCompositor } from "./sprite-compositor.js";
+      const canvas = document.querySelector("#sprite");
+      const runtime = await GalSpriteCompositor.load(canvas);
+      const figure = document.querySelector("#figure");
+      const eyes = document.querySelector("#eyes");
+      const mouth = document.querySelector("#mouth");
+      const status = document.querySelector("#status");
+      let blinking = false;
+      const fill = (select, values) => { select.replaceChildren(...values.map((value) => new Option(value, value))); };
+      fill(figure, Object.keys(runtime.manifest.figures));
+      const refreshStates = () => { fill(eyes, runtime.availableEyeStates()); fill(mouth, runtime.availableMouthStates()); };
+      refreshStates();
+      figure.onchange = async () => { await runtime.setFigure(figure.value); refreshStates(); status.textContent = `已切换：${figure.value}`; };
+      eyes.onchange = () => runtime.setEyes(eyes.value);
+      mouth.onchange = () => runtime.setMouth(mouth.value);
+      document.querySelector("#speak").onclick = async () => { status.textContent = "正在按相邻嘴型说话…"; await runtime.speakFor(3000); mouth.value = "base"; status.textContent = "说话结束"; };
+      document.querySelector("#blink").onclick = (event) => { blinking = !blinking; blinking ? runtime.startBlinking() : runtime.stopBlinking(); event.currentTarget.textContent = blinking ? "停止眨眼" : "开启眨眼"; };
+      document.querySelector("#download").onclick = async () => { const blob = await runtime.toBlob(); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `${runtime.figureId}-${runtime.eyeState}-${runtime.mouthState}.png`; link.click(); URL.revokeObjectURL(link.href); };
+    </script>
+  </body>
+</html>

@@ -43,5 +43,6 @@ next-env.d.ts
 /outputs/
 /work/
 /public/vendor/webgal/
+/public/webgal-preview/
 /public/export-smoke/
 /artifacts/

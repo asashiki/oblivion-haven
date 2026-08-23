@@ -1,0 +1,6 @@
+numpy
+Pillow
+scipy
+
+# Optional; required only by scripts/gpt_image2_adapter.py in API mode.
+openai

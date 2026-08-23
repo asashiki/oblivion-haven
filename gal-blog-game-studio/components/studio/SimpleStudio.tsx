@@ -49,7 +49,6 @@ import {
   Search,
   Send,
   Sparkles,
-  TriangleAlert,
   Trash2,
   UploadCloud,
   UserRound,
@@ -59,7 +58,6 @@ import {
 import { ChangeEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { FigureStageEditor } from "./FigureStageEditor";
-import { DynamicGalgameStage, sceneUsesLayeredMotion } from "./DynamicGalgameStage";
 import { resolveRegisteredAssetUrl } from "@/lib/assetUrl";
 import {
   createRuntimeZipWithAssets,
@@ -2069,16 +2067,7 @@ function SimplePreviewWorkspace({
   const [webgalUrl, setWebgalUrl] = useState("");
   const [webgalStatus, setWebgalStatus] = useState("正在编译 WebGAL 实机…");
   const [webgalWarnings, setWebgalWarnings] = useState<string[]>([]);
-  const [directorChoice, setDirectorChoice] = useState<{ sceneId: string; value: boolean }>();
-  const directorEnabled = directorChoice?.sceneId === scene.id ? directorChoice.value : scene.staging?.enabled !== false;
   const performanceCues = scene.staging?.cues || [];
-  const layeredMotionPreview = Boolean(scene && sceneUsesLayeredMotion(project, scene));
-  const previewProject = useMemo(() => ({
-    ...project,
-    scenes: project.scenes.map((item) => item.id === scene.id
-      ? { ...item, staging: { enabled: directorEnabled, cues: item.staging?.cues || [], revision: item.staging?.revision } }
-      : item),
-  }), [directorEnabled, project, scene.id]);
   const [playerLanguage, setPlayerLanguage] = useState(() => {
     if (typeof window === "undefined") return "2";
     const saved = window.localStorage.getItem("lang");
@@ -2111,21 +2100,12 @@ function SimplePreviewWorkspace({
   useEffect(() => {
     let cancelled = false;
     if (!scene) return;
-    if (layeredMotionPreview) {
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setWebgalUrl("");
-        setWebgalWarnings([]);
-        setWebgalStatus("独立眼嘴运行时已就绪");
-      });
-      return () => { cancelled = true; };
-    }
     queueMicrotask(() => {
       if (cancelled) return;
       setWebgalStatus("正在编译 WebGAL 实机…");
       setWebgalUrl("");
     });
-    void prepareWebGalPreview(previewProject, scene.id, { startBlockId: replayStartBlockId }).then((prepared) => {
+    void prepareWebGalPreview(project, scene.id, { startBlockId: replayStartBlockId }).then((prepared) => {
       if (cancelled) return;
       setWebgalUrl(prepared.url);
       setWebgalWarnings(prepared.warnings);
@@ -2135,7 +2115,7 @@ function SimplePreviewWorkspace({
       setWebgalStatus(error instanceof Error ? error.message : "WebGAL 实机预览准备失败");
     });
     return () => { cancelled = true; };
-  }, [layeredMotionPreview, previewProject, replayStartBlockId, restartKey, scene]);
+  }, [project, replayStartBlockId, restartKey, scene]);
 
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(document.fullscreenElement === stageCardRef.current);
@@ -2352,10 +2332,6 @@ function SimplePreviewWorkspace({
             <section className="simple-performance-plan">
               <header>
                 <div><strong>立绘演出计划</strong><small>默认保持不动，只在有剧情理由时执行小动作</small></div>
-                <div className="simple-director-ab">
-                  <button className={!directorEnabled ? "active" : ""} onClick={() => { setDirectorChoice({ sceneId: scene.id, value: false }); setRestartKey((value) => value + 1); }}>静态 A</button>
-                  <button className={directorEnabled ? "active" : ""} onClick={() => { setDirectorChoice({ sceneId: scene.id, value: true }); setRestartKey((value) => value + 1); }}>导演 B</button>
-                </div>
               </header>
               <div className="simple-performance-cues">
                 {performanceCues.length ? performanceCues.map((cue) => {
@@ -2429,13 +2405,11 @@ function SimplePreviewWorkspace({
               </div>
             </div>
             <div className="webgal-live-stage">
-              {layeredMotionPreview
-                ? <DynamicGalgameStage project={project} scene={scene} directorEnabled={directorEnabled} restartKey={restartKey} />
-                : webgalUrl
-                  ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" />
-                  : <div className="webgal-live-stage__loading"><Gamepad2 size={28} /><strong>{webgalStatus}</strong></div>}
+              {webgalUrl
+                ? <iframe src={webgalUrl} title={`WebGAL 实机 · ${scene.name}`} allow="autoplay; fullscreen" />
+                : <div className="webgal-live-stage__loading"><Gamepad2 size={28} /><strong>{webgalStatus}</strong></div>}
             </div>
-            {!layeredMotionPreview && webgalWarnings.length > 0 && <button className="webgal-preview-warning" title={webgalWarnings.join(" · ")}><TriangleAlert size={13} /> {webgalWarnings.length}</button>}
+            {webgalWarnings.length > 0 && <p className="webgal-preview-warning" title={webgalWarnings.join(" · ")}>{webgalWarnings[0]}</p>}
           </main>
         </div>
       )}
@@ -2675,7 +2649,6 @@ export function SimpleStudio({
           <div className="simple-save-state"><Save size={13} /><span>{savedAt}</span></div>
           <button className="icon-soft" onClick={onUndo} disabled={!canUndo} title="撤销"><Undo2 size={16} /></button>
           <button className="icon-soft" onClick={onRedo} disabled={!canRedo} title="重做"><Redo2 size={16} /></button>
-          <a className="simple-face-motion-entry" href="/face-motion-lab"><Film size={14} /> 面部动效</a>
           <button className="simple-top-preview" onClick={() => setSection("preview")}><Play size={14} fill="currentColor" /> 试玩</button>
           <button className="simple-top-export" onClick={() => setExportOpen(true)}><Download size={14} /> 导出</button>
         </div>
