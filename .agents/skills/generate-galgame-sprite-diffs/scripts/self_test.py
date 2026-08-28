@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic regression test for cutout review and runtime package export."""
+"""Deterministic regression test for prompt building and runtime package export."""
 
 from __future__ import annotations
 
@@ -30,43 +30,10 @@ def run(*args: str) -> None:
     subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
-def test_cutout(root: Path) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    source = root / "cutout-source.png"
-    output = root / "cutout.png"
-    report = root / "cutout.json"
-    review = root / "cutout-review.jpg"
-    scale = 4
-    image = Image.new("RGB", (256 * scale, 384 * scale), (0, 242, 81))
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((70 * scale, 30 * scale, 190 * scale, 160 * scale), fill=(244, 221, 205))
-    draw.polygon(
-        ((84 * scale, 45 * scale), (128 * scale, 12 * scale), (176 * scale, 45 * scale), (196 * scale, 230 * scale), (62 * scale, 230 * scale)),
-        fill=(224, 226, 239),
-    )
-    draw.rectangle((82 * scale, 135 * scale, 174 * scale, 340 * scale), fill=(65, 50, 108))
-    image.resize((256, 384), Image.Resampling.LANCZOS).save(source)
-    run(
-        sys.executable,
-        str(ROOT / "scripts" / "sprite_tools.py"),
-        "cutout",
-        str(source),
-        str(output),
-        "--scope",
-        "all",
-        "--auto-refine",
-        "--review-out",
-        str(review),
-        "--json",
-        str(report),
-    )
-    data = json.loads(report.read_text(encoding="utf-8"))
-    assert data["auto_refine"] is True
-    assert len(data["candidates"]) >= 2
-    assert review.is_file()
-    with Image.open(output) as cutout:
-        cutout.load()
-        assert "A" in cutout.getbands()
+def run_failure(*args: str) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(args, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    assert result.returncode != 0
+    return result
 
 
 def make_sprite(path: Path, eye: str = "open", mouth: str = "closed") -> None:
@@ -74,6 +41,9 @@ def make_sprite(path: Path, eye: str = "open", mouth: str = "closed") -> None:
     draw = ImageDraw.Draw(image)
     draw.ellipse((30, 10, 98, 78), fill=(245, 220, 205, 255), outline=(40, 32, 55, 255), width=2)
     draw.rectangle((38, 70, 90, 180), fill=(75, 55, 120, 255))
+    brow_y = 33 if eye == "closed" else 32 if eye == "half" else 31
+    draw.line((44, brow_y, 57, brow_y - 1), fill=(55, 35, 50, 255), width=2)
+    draw.line((71, brow_y - 1, 84, brow_y), fill=(55, 35, 50, 255), width=2)
     if eye == "closed":
         draw.line((45, 42, 57, 42), fill=(45, 30, 55, 255), width=3)
         draw.line((71, 42, 83, 42), fill=(45, 30, 55, 255), width=3)
@@ -100,8 +70,8 @@ def test_export(root: Path) -> None:
     make_sprite(base)
     make_sprite(source)
     states = {
-        "eyes_half": ("half", "closed", [42, 34, 86, 50]),
-        "eyes_close": ("closed", "closed", [42, 34, 86, 50]),
+        "eyes_half": ("half", "closed", [42, 28, 86, 50]),
+        "eyes_close": ("closed", "closed", [42, 28, 86, 50]),
         "mouth_half_open": ("open", "half", [55, 53, 73, 68]),
         "mouth_open": ("open", "open", [55, 53, 73, 68]),
     }
@@ -111,6 +81,8 @@ def test_export(root: Path) -> None:
         asset_id = f"normal_idle__{state}"
         frame = root / "work" / f"{state}.png"
         make_sprite(frame, eye=eye, mouth=mouth)
+        candidate = root / "work" / f"{state}-candidate.png"
+        make_sprite(candidate, eye=eye, mouth=mouth)
         qa = root / "work" / f"{state}.json"
         write_json(qa, {"mask_bbox": bbox, "outside_mask_changed_pixels": 0})
         runtime_assets[asset_id] = {
@@ -122,9 +94,32 @@ def test_export(root: Path) -> None:
         completed[asset_id] = {
             "frame": str(frame.relative_to(root)),
             "frame_sha256": digest(frame),
+            "candidate": str(candidate.relative_to(root)),
+            "candidate_sha256": digest(candidate),
             "qa": str(qa.relative_to(root)),
             "qa_sha256": digest(qa),
         }
+        if state.startswith("eyes_"):
+            review = root / "work" / f"{state}-review.json"
+            write_json(
+                review,
+                {
+                    "operation": "eye-alignment-and-residue-review",
+                    "status": "pass",
+                    "state": state,
+                    "candidate_sha256": digest(candidate),
+                    "frame_sha256": digest(frame),
+                    "anchors_pixels": {
+                        "left_inner": [58, 42],
+                        "left_outer": [44, 42],
+                        "right_inner": [70, 42],
+                        "right_outer": [84, 42],
+                    },
+                    "reviewer_note": "Synthetic lids retain all four corner anchors.",
+                },
+            )
+            completed[asset_id]["eye_review"] = str(review.relative_to(root))
+            completed[asset_id]["eye_review_sha256"] = digest(review)
     record = {
         "source": str(source.relative_to(root)),
         "source_sha256": digest(source),
@@ -210,14 +205,238 @@ def test_prompt_build(root: Path) -> None:
     assert (root / "run" / "deliverables" / "parts").is_dir()
     assert (root / "run" / "deliverables" / "runtime").is_dir()
     assert manifest["output"]["make_demo_gifs"] is False
+    assert manifest["output"]["make_contact_sheet"] is False
+    eye_prompt = (
+        root / "run" / "work" / "prompts" / "runtime_normal_idle_eyes_close.txt"
+    ).read_text(encoding="utf-8")
+    assert "repaint the complete original open-eye construction" in eye_prompt
+    assert "second arc" in eye_prompt
+    assert "Image 2 is locator-only" in eye_prompt
+    assert "exactly one intentional lid contour" in eye_prompt
+    assert "both eyes and both eyebrows as one coherent blink state" in eye_prompt
+    assert "exact local mother-frame hue" in eye_prompt
+    reference_prompt = (root / "run" / "work" / "prompts" / "reference_normal.txt").read_text(encoding="utf-8")
+    assert "genuine transparent alpha channel" in reference_prompt
+    assert manifest["input_pipeline"]["opaque_source_action"] == "transparent-img2img"
+
+
+def test_alpha_route(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    rgba = root / "rgba.png"
+    opaque = root / "opaque.png"
+    make_sprite(rgba)
+    Image.new("RGB", (64, 64), (20, 30, 40)).save(opaque)
+    rgba_json = root / "rgba.json"
+    opaque_json = root / "opaque.json"
+    run(sys.executable, str(ROOT / "scripts" / "sprite_tools.py"), "alpha-route", str(rgba), "--json", str(rgba_json))
+    run(sys.executable, str(ROOT / "scripts" / "sprite_tools.py"), "alpha-route", str(opaque), "--json", str(opaque_json))
+    assert json.loads(rgba_json.read_text(encoding="utf-8"))["route"] == "use-authoritative-rgba"
+    assert json.loads(opaque_json.read_text(encoding="utf-8"))["route"] == "opaque-reference-to-transparent-img2img"
+
+
+def test_eye_mask_and_review(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    base = root / "base.png"
+    candidate = root / "candidate.png"
+    frame = root / "frame.png"
+    make_sprite(base, eye="open")
+    make_sprite(candidate, eye="closed")
+    make_sprite(frame, eye="closed")
+    allow = root / "eyes_allow.png"
+    api = root / "eyes_api.png"
+    overlay = root / "eyes_overlay.png"
+    mask_json = root / "eyes_mask.json"
+    run(
+        sys.executable,
+        str(ROOT / "scripts" / "face_parts.py"),
+        "mask",
+        "--base",
+        str(base),
+        "--ellipse",
+        "0.398,0.219,0.09,0.07",
+        "--ellipse",
+        "0.602,0.219,0.09,0.07",
+        "--brow-ellipse",
+        "0.398,0.166,0.10,0.025",
+        "--brow-ellipse",
+        "0.602,0.166,0.10,0.025",
+        "--feather",
+        "4",
+        "--allow-out",
+        str(allow),
+        "--api-out",
+        str(api),
+        "--overlay-out",
+        str(overlay),
+        "--json",
+        str(mask_json),
+    )
+    allow_pixels = np.asarray(Image.open(allow).convert("L"))
+    assert allow_pixels[42, 51] == 255
+    assert np.any((allow_pixels > 0) & (allow_pixels < 255))
+    mask_data = json.loads(mask_json.read_text(encoding="utf-8"))
+    assert mask_data["feather_mode"] == "finite-outward-cosine-solid-core"
+    assert len(mask_data["brow_ellipses_normalized"]) == 2
+    assert mask_data["bbox"][1] < 32
+
+    plate = root / "eyes-edit-plate.png"
+    plate_map = root / "eyes-edit-plate.json"
+    run(
+        sys.executable,
+        str(ROOT / "scripts" / "face_parts.py"),
+        "edit-plate",
+        "--base",
+        str(base),
+        "--mask",
+        str(allow),
+        "--context-scale",
+        "2.4",
+        "--plate-size",
+        "256",
+        "--out",
+        str(plate),
+        "--json",
+        str(plate_map),
+    )
+    plate_data = json.loads(plate_map.read_text(encoding="utf-8"))
+    assert plate_data["operation"] == "prepare-fixed-registration-edit-plate"
+    assert Image.open(plate).size == (256, 256)
+    guide = root / "eyes-anchor-guide.png"
+    guide_json = root / "eyes-anchor-guide.json"
+    run(
+        sys.executable,
+        str(ROOT / "scripts" / "face_parts.py"),
+        "anchor-guide",
+        "--plate",
+        str(plate),
+        "--plate-map",
+        str(plate_map),
+        "--left-inner",
+        "0.46,0.22",
+        "--left-outer",
+        "0.34,0.22",
+        "--right-inner",
+        "0.54,0.22",
+        "--right-outer",
+        "0.66,0.22",
+        "--out",
+        str(guide),
+        "--json",
+        str(guide_json),
+    )
+    guide_data = json.loads(guide_json.read_text(encoding="utf-8"))
+    assert guide_data["operation"] == "eye-anchor-locator-guide"
+    assert len(guide_data["anchors_plate_pixels"]) == 4
+    assert guide_data["usage"] == "locator-reference-only-never-an-edit-target"
+    crop_box = tuple(plate_data["crop_bbox"])
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+    candidate_plate = root / "candidate-edit-plate.png"
+    Image.open(candidate).convert("RGBA").crop(crop_box).resize(
+        (384, 384), resample=resampling
+    ).save(candidate_plate)
+    composed = root / "composed-from-plate.png"
+    compose_json = root / "composed-from-plate.json"
+    run(
+        sys.executable,
+        str(ROOT / "scripts" / "face_parts.py"),
+        "compose",
+        "--base",
+        str(base),
+        "--candidate",
+        str(candidate_plate),
+        "--plate-map",
+        str(plate_map),
+        "--mask",
+        str(allow),
+        "--frame",
+        str(composed),
+        "--json",
+        str(compose_json),
+    )
+    compose_data = json.loads(compose_json.read_text(encoding="utf-8"))
+    assert compose_data["candidate_kind"] == "fixed-registration-edit-plate"
+    assert compose_data["candidate_source_size"] == [384, 384]
+    assert compose_data["outside_mask_changed_pixels"] == 0
+    assert compose_data["surface_rgb_p95_delta"] <= 28
+
+    review = root / "eye-review.png"
+    review_json = root / "eye-review.json"
+    run(
+        sys.executable,
+        str(ROOT / "scripts" / "face_parts.py"),
+        "eye-review",
+        "--base",
+        str(base),
+        "--candidate",
+        str(candidate_plate),
+        "--plate-map",
+        str(plate_map),
+        "--frame",
+        str(composed),
+        "--mask",
+        str(allow),
+        "--state",
+        "eyes_close",
+        "--left-inner",
+        "0.46,0.22",
+        "--left-outer",
+        "0.34,0.22",
+        "--right-inner",
+        "0.54,0.22",
+        "--right-outer",
+        "0.66,0.22",
+        "--verdict",
+        "pass",
+        "--reviewer-note",
+        "Synthetic closed lids keep all four endpoints on the base anchors.",
+        "--out",
+        str(review),
+        "--json",
+        str(review_json),
+    )
+    assert review.is_file()
+    review_data = json.loads(review_json.read_text(encoding="utf-8"))
+    assert review_data["operation"] == "eye-alignment-and-residue-review"
+    assert review_data["status"] == "pass"
+    assert len(review_data["anchors_pixels"]) == 4
+    assert "remote black block" in " ".join(review_data["required_visual_checks"])
+    assert review_data["crop_bbox"][1] == 0
+
+    tinted = Image.open(candidate_plate).convert("RGBA")
+    tint_draw = ImageDraw.Draw(tinted)
+    tint_draw.rectangle((80, 40, 300, 180), fill=(220, 150, 150, 255))
+    tinted_path = root / "candidate-tinted.png"
+    tinted.save(tinted_path)
+    failed_json = root / "tinted-compose.json"
+    run_failure(
+        sys.executable,
+        str(ROOT / "scripts" / "face_parts.py"),
+        "compose",
+        "--base",
+        str(base),
+        "--candidate",
+        str(tinted_path),
+        "--plate-map",
+        str(plate_map),
+        "--mask",
+        str(allow),
+        "--frame",
+        str(root / "tinted-frame.png"),
+        "--json",
+        str(failed_json),
+    )
+    failed_data = json.loads(failed_json.read_text(encoding="utf-8"))
+    assert failed_data["status"] == "fail"
+    assert any("色" in item or "纹理" in item for item in failed_data["failures"])
 
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="gal-sprite-self-test-") as directory:
         root = Path(directory)
         test_prompt_build(root / "prompt-build")
-        test_cutout(root / "cutout")
+        test_alpha_route(root / "alpha-route")
         test_export(root / "export")
+        test_eye_mask_and_review(root / "eye-review")
     print("self-test: pass")
 
 

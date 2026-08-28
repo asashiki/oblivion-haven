@@ -11,7 +11,7 @@
 | 主题 | 路由 | 说明 |
 |---|---|---|
 | VibeGame | [`asashiki/vibe-game`](https://github.com/asashiki/vibe-game) · [本地路由说明](./vibegame/) | VibeGame 的资料、代码与修改统一进入其独立仓库 |
-| Galgame 立绘差分生成器 | [Codex Skill](./.agents/skills/generate-galgame-sprite-diffs/) | 三动作母版、稀疏强表情及 WebGAL 口型/眨眼完整帧；局部合成保证眼嘴蒙版外像素不变 |
+| Galgame 立绘差分生成器 | [Codex Skill](./.agents/skills/generate-galgame-sprite-diffs/) | 真实 Alpha 直通／透明图生图、眼眉联动眨眼、原肤色锁定及 WebGAL 完整帧；色键仅作显式后备 |
 | Gal Blog Game Studio | [项目目录](./gal-blog-game-studio/) · [在线版](https://gal-blog-game-studio.asashiki-5352.chatgpt.site) | AI 优先的 Story IR → WebGAL 创作、编排、预览与发布工作台 |
 
 新主题可以直接在本仓库创建同名文件夹与 `README.md`。如果主题已有独立仓库，只需保留一份简短路由说明，不要重复保存实际内容。
@@ -21,6 +21,7 @@
 - 在本仓库根目录或任意子目录启动 Codex，仓库级 Skill 会被自动发现；输入 `$generate-galgame-sprite-diffs` 并上传人设图即可开始。
 - 若希望在所有项目中使用，让 `$skill-installer` 从 [这个 GitHub 目录](https://github.com/asashiki/oblivion-haven/tree/main/.agents/skills/generate-galgame-sprite-diffs) 安装它；安装后若未立即显示，请新开一个 Codex 会话。
 - 内置模式会调用 Codex 的 `$imagegen`，不要求 API Key；只有切换到独立 API 模式时才需要 `OPENAI_API_KEY`。
+- 输入为真实 RGBA 时原图直通；输入不透明时先做一次高保真透明图生图并复核 Alpha，默认不会再自动走色键抠图。
 
 ## AI 使用规则
 
