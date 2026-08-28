@@ -114,6 +114,22 @@ def load_config(path: Path) -> dict:
             raise SystemExit(f"配置缺少字段: {key}")
     if data.get("schema_version") != 3:
         raise SystemExit("当前生成器要求 schema_version=3")
+    input_pipeline = data.setdefault(
+        "input_pipeline",
+        {
+            "mode": "auto-alpha-first",
+            "opaque_source_action": "transparent-img2img",
+            "transparent_retry_limit": 1,
+            "allow_chroma_fallback": False,
+            "preserve_source_canvas_when_reusing_pose": True,
+        },
+    )
+    if input_pipeline.get("mode") != "auto-alpha-first":
+        raise SystemExit("input_pipeline.mode 必须为 auto-alpha-first")
+    if input_pipeline.get("opaque_source_action") != "transparent-img2img":
+        raise SystemExit("不透明输入必须先走 transparent-img2img")
+    if not isinstance(input_pipeline.get("allow_chroma_fallback"), bool):
+        raise SystemExit("input_pipeline.allow_chroma_fallback 必须是布尔值")
 
     slug = data["character"].get("slug", "")
     if not ID.fullmatch(slug):
@@ -175,12 +191,6 @@ def load_config(path: Path) -> dict:
     chroma = data["chroma_key"]
     if not 0 <= chroma["transparent_distance"] < chroma["opaque_distance"] <= 255:
         raise SystemExit("色键阈值须满足 0 <= transparent_distance < opaque_distance <= 255")
-    if not isinstance(chroma.get("auto_refine"), bool):
-        raise SystemExit("chroma_key.auto_refine 必须是布尔值")
-    if not 0 <= float(chroma.get("auto_refine_max_alpha_loss", -1)) <= 0.20:
-        raise SystemExit("chroma_key.auto_refine_max_alpha_loss 须在 0 到 0.20 之间")
-    if not 0 <= float(data["qa"].get("max_residual_key_edge_fraction", -1)) <= 1:
-        raise SystemExit("qa.max_residual_key_edge_fraction 须在 0 到 1 之间")
 
     workflow = data["workflow"]
     gates = (
@@ -252,7 +262,7 @@ def reference_prompt(config: dict, key_color: str) -> str:
     references = character["reference_images"]
     description = character["description"].strip() or "Use the supplied primary character reference exactly."
     return f"""Use case: identity-preserve
-Asset type: canonical Galgame full-body model-reference sprite, opaque chroma-key source
+Asset type: canonical Galgame full-body model-reference sprite, true transparent RGBA PNG
 Input images:
 {reference_authority_lines(references)}
 
@@ -261,7 +271,7 @@ Character: {description}
 Style: {character['style_note'].strip()}
 Pose: {render['reference_pose'].strip()}
 
-This is a faithful pose/framing conversion, not beautification or anatomy correction.
+This is a faithful pose/framing conversion, not beautification or anatomy correction. If the primary input is opaque, perform exactly one fidelity-locked image-to-image conversion whose only material change is removal of the background into real alpha.
 {common_identity_lock(config)}
 
 Face and framing:
@@ -271,9 +281,9 @@ Face and framing:
 - Use a {render['size']} portrait canvas with about {render['safe_margin_percent']}% margin and a {render['anchor'].replace('-', ' ')} anchor.
 - No duplicate views, inset faces, charts, text, UI, watermark, or incidental prop.
 
-Background:
-- Exactly one flat solid {key_color}; no gradient, texture, floor, shadow, halo, glow, or reflection.
-- Do not use {key_color} on the character.
+Background and alpha:
+- Output a PNG with a genuine transparent alpha channel. The canvas outside the character must have alpha 0; do not paint a checkerboard, solid matte, halo, glow, floor, reflection, or cast shadow.
+- Preserve all hair tips, fabric edges, white clothing, accessories, antialiasing, and semi-transparent edge pixels. Do not simulate transparency in RGB.
 """
 
 
@@ -303,8 +313,8 @@ def pose_prompt(config: dict, key_color: str, pose: dict) -> str:
     render = config["render"]
     slug = config["character"]["slug"]
     return f"""Use case: identity-preserve
-Asset type: Galgame neutral runtime pose base, opaque chroma-key source
-Input image: `{slug}_reference_normal_key.png`, the approved canonical reference.
+Asset type: Galgame neutral runtime pose base, true transparent RGBA PNG
+Input image: `{slug}_reference_normal.png`, the approved transparent canonical reference.
 
 Create the distinct neutral “{pose['label']}” runtime pose:
 {pose['instruction'].strip()}
@@ -321,7 +331,7 @@ Expression and identity:
 Composition:
 - One complete character on {render['size']}; same scale; about {render['safe_margin_percent']}% margin; {render['anchor'].replace('-', ' ')} anchor.
 - No props, scenery, shadows, duplicate views, text, UI, or watermark.
-- Flat solid {key_color} background only; do not use it on the character.
+- Genuine transparent alpha outside the complete character; no checkerboard, matte, floor, halo, or shadow.
 """
 
 
@@ -330,8 +340,8 @@ def expression_prompt(config: dict, key_color: str, expression: dict) -> str:
     pose_stem = pose_file_stem(config, expression["pose"])
     policy = expression["runtime"]
     return f"""Use case: precise-object-edit
-Asset type: Galgame facial-expression mother frame, opaque chroma-key source
-Input image: `{pose_stem}_key.png`, the approved neutral `{expression['pose']}` pose.
+Asset type: Galgame facial-expression mother frame, true transparent RGBA PNG
+Input image: `{pose_stem}.png`, the approved transparent neutral `{expression['pose']}` pose.
 
 Change only the facial expression to “{expression['label']}”:
 {expression['instruction'].strip()}
@@ -346,7 +356,7 @@ Absolute invariants:
 - Same canvas, placement, crop, pose, hands, body, silhouette, hair, costume, colors, linework, shading, lighting, and edge placement.
 - Change only eyelids, eyes, eyebrows, mouth, and explicitly requested blush or moist highlights.
 - No symbols, motion lines, props, text, effects, or newly invented details.
-- Flat solid {key_color} background only; do not use it on the character.
+- Preserve the approved transparent alpha exactly; do not add a checkerboard, matte, halo, shadow, or background pixels.
 {common_identity_lock(config)}
 """
 
@@ -370,6 +380,24 @@ def runtime_prompt(config: dict, key_color: str, runtime_id: str, state: str) ->
     instruction = config["runtime"]["states"][state]
     region = "eyes" if state.startswith("eyes_") else "mouth"
     pair_rule = ""
+    eye_cleanup_rule = ""
+    if state == "eyes_close":
+        eye_cleanup_rule = """
+Eye-replacement rule:
+- Treat both eyes and both eyebrows as one coherent blink state. First repaint the complete original open-eye construction and every displaced old brow pixel as clean local skin: remove both irises, sclerae, lower lashes, the full-open upper-lash contours, remote black fragments, and every antialiased gray/black echo.
+- Then draw exactly one intentional closed-eyelid curve per eye in the original eye position.
+- Move each eyebrow subtly and naturally with the blink while preserving its emotional direction and identity. Do not leave the old eyebrow behind, split it into two copies, or move it into hair.
+- Leave no eyelid crease, eyelid fold, highlight line, shadow line, second arc, remote black block, orphan lash tip, or faint duplicate stroke above or around the new closed lid. There must be exactly one intentional lid contour per eye.
+- Any reconstructed skin or flat-color fill must use the exact local mother-frame hue, value, texture, edge softness, and antialiasing; never introduce a warmer, pinker, grayer, blurrier, or flatter skin patch.
+"""
+    elif state == "eyes_half":
+        eye_cleanup_rule = """
+Eye-replacement rule:
+- Treat both eyes and both eyebrows as one coherent blink state. First remove the complete original full-open eye construction, including its upper/lower lash outlines, remote black fragments, antialiased gray/black echoes, and any old brow pixels displaced by the new state; then redraw the reduced half-closed aperture cleanly.
+- Draw exactly one intentional upper-lid contour per eye. The old full-open upper contour must not remain as a second arc above it.
+- Preserve only the iris/sclera portion naturally visible through the new smaller aperture. Move each eyebrow subtly with the blink while preserving its emotional direction; do not leave an old/new double brow.
+- Reconstructed skin must match the exact local mother-frame hue, value, texture, and antialiasing with no visible patch boundary.
+"""
     if state in {"mouth_half_open", "mouth_open"}:
         pair_rule = """
 Mouth-pair rule:
@@ -377,26 +405,29 @@ Mouth-pair rule:
 - Keep the same mouth corners, emotion, inner-mouth palette, teeth/tongue policy, and face identity.
 - `mouth_open` may be only modestly more open than `mouth_half_open`; never jump from a tiny mouth to a shout-sized mouth.
 """
+    input_rule = (
+        f"Input images: Image 1 is the sole edit target, a fixed-coordinate 1024x1024 local edit plate prepared directly from the approved `{runtime_id}` mother frame. Image 2 is locator-only: red crosses mark outer eye corners and green crosses mark inner eye corners. Never reproduce a guide mark."
+        if region == "eyes"
+        else f"Input image: a fixed-coordinate 1024x1024 local edit plate prepared directly from the approved `{runtime_id}` mother frame."
+    )
     return f"""Use case: precise-object-edit
 Asset type: WebGAL image-sprite {region} micro-differential candidate
-Input image: the approved full-canvas rekeyed `{runtime_id}` mother frame.
+{input_rule}
 
 Change request:
 {instruction.strip()}
+{eye_cleanup_rule}
 {pair_rule}
 Absolute invariants:
 - Change only the requested {region} region.
 - Preserve emotion, identity, apparent age, face geometry, head angle, pose, placement, body, hair, costume, linework, shading, and palette.
-- Keep the exact {config['render']['size']} canvas and the complete character framing.
+- Keep the exact 1024x1024 plate canvas and its identical crop boundaries.
+- Do not recenter, rescale, expand, rotate, translate, or redraw the head or face. Keep all visible hair, nose, cheeks, ears, and crop-edge pixels fixed. For eye states only, eyebrows inside the separately approved brow activity mask may move subtly with the blink; everything outside that eye-and-brow mask remains fixed.
 - This is an independent edit from the approved mother frame, never from another runtime state.
 - Do not retouch, sharpen, soften, recolor, or add detail outside the requested region.
 - No symbols, effects, text, UI, watermark, props, shadows, or scenery.
 
-Background:
-- Exactly one flat solid {key_color}; no gradient, texture, halo, floor, shadow, reflection, or glow.
-- Do not use {key_color} on the character.
-
-The downstream program discards every pixel outside a locally approved {region} mask.
+The downstream program maps this exact plate back to its recorded mother-frame crop and discards every pixel outside a locally approved {region} mask.
 """
 
 
@@ -476,8 +507,9 @@ def main() -> None:
     for pose in config["poses"]:
         stem = pose_file_stem(config, pose["id"])
         pose_files[pose["id"]] = {
-            "chroma_source": str(work / "source" / f"{stem}_key.png"),
-            "cutout": str(work / "cutouts" / f"{stem}.png"),
+            "generated_transparent": str(work / "source" / f"{stem}.png"),
+            "fallback_chroma_source": str(work / "source" / f"{stem}_key.png"),
+            "fallback_cutout": str(work / "cutouts" / f"{stem}.png"),
             "transparent_final": str(work / "finals" / f"{stem}.png"),
             "transform": str(work / "transforms" / f"{pose['id']}.json"),
         }
@@ -487,8 +519,9 @@ def main() -> None:
         stem = expression_file_stem(config, expression["id"])
         expression_files[expression["id"]] = {
             "from_pose": expression["pose"],
-            "chroma_source": str(work / "source" / f"{stem}_key.png"),
-            "cutout": str(work / "cutouts" / f"{stem}.png"),
+            "generated_transparent": str(work / "source" / f"{stem}.png"),
+            "fallback_chroma_source": str(work / "source" / f"{stem}_key.png"),
+            "fallback_cutout": str(work / "cutouts" / f"{stem}.png"),
             "transparent_final": str(work / "finals" / f"{stem}.png"),
         }
 
@@ -527,15 +560,15 @@ def main() -> None:
                 pose=base["pose"],
             )
             stem = f"{slug}_{runtime_id}_{state}"
+            region = "eyes" if state.startswith("eyes_") else "mouth"
             runtime_assets[asset_id] = {
                 "runtime_id": runtime_id,
                 "state": state,
-                "region": "eyes" if state.startswith("eyes_") else "mouth",
+                "region": region,
                 "mask_profile": base["policy"]["mask_profile"],
                 "prompt": prompts[prompt_key]["path"],
-                "rekeyed_base": str(work / "runtime" / "sources" / f"{slug}_{runtime_id}_base_key.png"),
-                "chroma_candidate": str(work / "runtime" / "sources" / f"{stem}_key.png"),
-                "transparent_candidate": str(work / "runtime" / "candidates" / f"{stem}.png"),
+                "edit_plate": str(work / "runtime" / "sources" / f"{slug}_{runtime_id}_{region}_plate.png"),
+                "model_candidate": str(work / "runtime" / "candidates" / f"{stem}.png"),
                 "frame": str(work / "runtime" / "frames" / f"{stem}.png"),
                 "part": str(work / "runtime" / "parts" / f"{stem}.png"),
                 "qa": str(work / "qa" / f"{stem}.json"),
@@ -551,6 +584,7 @@ def main() -> None:
             for index, reference in enumerate(config["character"]["reference_images"], start=1)
         ],
         "key_color": key_color,
+        "input_pipeline": config["input_pipeline"],
         "render": config["render"],
         "pose_design": config["pose_design"],
         "poses": [item["id"] for item in config["poses"]],
@@ -561,8 +595,9 @@ def main() -> None:
         "files": {
             "directories": {"work": str(work), "deliverables": str(deliverables)},
             "reference_normal": {
-                "chroma_source": str(work / "source" / f"{slug}_reference_normal_key.png"),
-                "cutout": str(work / "cutouts" / f"{slug}_reference_normal.png"),
+                "generated_transparent": str(work / "source" / f"{slug}_reference_normal.png"),
+                "fallback_chroma_source": str(work / "source" / f"{slug}_reference_normal_key.png"),
+                "fallback_cutout": str(work / "cutouts" / f"{slug}_reference_normal.png"),
                 "transparent_final": str(work / "finals" / f"{slug}_reference_normal.png"),
                 "transform": str(work / "transforms" / "reference_normal.json"),
             },

@@ -286,6 +286,37 @@ def command_runtime_ready(args: argparse.Namespace, manifest: dict) -> None:
     if qa.get("frame_sha256") and qa["frame_sha256"] != frame_sha:
         raise SystemExit("QA 中的 frame_sha256 与当前完整帧不一致")
 
+    state = configured[args.asset].get("state")
+    eye_review_record = None
+    if state in {"eyes_half", "eyes_close"}:
+        if args.eye_review is None:
+            raise SystemExit("眼睛运行时素材缺少独立对位与残影审核，拒绝登记")
+        try:
+            eye_review = json.loads(args.eye_review.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"无法读取眼睛审核 {args.eye_review}: {exc}") from exc
+        if eye_review.get("operation") != "eye-alignment-and-residue-review":
+            raise SystemExit("眼睛审核类型不正确，拒绝登记")
+        if eye_review.get("status") != "pass":
+            raise SystemExit("眼睛对位与残影审核未通过，拒绝登记")
+        if eye_review.get("state") != state:
+            raise SystemExit("眼睛审核状态与运行时素材不匹配")
+        if eye_review.get("candidate_sha256") != digest(args.candidate):
+            raise SystemExit("眼睛审核对应的候选图已变化")
+        if eye_review.get("frame_sha256") != frame_sha:
+            raise SystemExit("眼睛审核对应的最终帧已变化")
+        anchors = eye_review.get("anchors_pixels")
+        if not isinstance(anchors, dict) or set(anchors) != {
+            "left_inner", "left_outer", "right_inner", "right_outer"
+        }:
+            raise SystemExit("眼睛审核缺少四个母版眼角锚点")
+        if not str(eye_review.get("reviewer_note", "")).strip():
+            raise SystemExit("眼睛审核缺少具体观察记录")
+        eye_review_record = {
+            "eye_review": relative_or_absolute(args.eye_review, root),
+            "eye_review_sha256": digest(args.eye_review),
+        }
+
     record = {
         "source": relative_or_absolute(args.source, root),
         "source_sha256": digest(args.source),
@@ -300,6 +331,8 @@ def command_runtime_ready(args: argparse.Namespace, manifest: dict) -> None:
     if args.part is not None:
         record["part"] = relative_or_absolute(args.part, root)
         record["part_sha256"] = digest(args.part)
+    if eye_review_record is not None:
+        record.update(eye_review_record)
 
     candidates = manifest.setdefault("runtime_candidates", {})
     candidates[args.asset] = record
@@ -425,6 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_ready.add_argument("--frame", type=Path, required=True)
     runtime_ready.add_argument("--part", type=Path)
     runtime_ready.add_argument("--qa", type=Path, required=True)
+    runtime_ready.add_argument("--eye-review", type=Path)
     runtime_ready.set_defaults(func=command_runtime_ready)
 
     reset_base = subparsers.add_parser("reset-base")

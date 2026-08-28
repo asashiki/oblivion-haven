@@ -68,6 +68,24 @@
       },
       "additionalProperties": false
     },
+    "input_pipeline": {
+      "type": "object",
+      "required": [
+        "mode",
+        "opaque_source_action",
+        "transparent_retry_limit",
+        "allow_chroma_fallback",
+        "preserve_source_canvas_when_reusing_pose"
+      ],
+      "properties": {
+        "mode": { "const": "auto-alpha-first" },
+        "opaque_source_action": { "const": "transparent-img2img" },
+        "transparent_retry_limit": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "allow_chroma_fallback": { "type": "boolean" },
+        "preserve_source_canvas_when_reusing_pose": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
     "pose_design": {
       "type": "object",
       "required": [
@@ -105,9 +123,7 @@
         "edge_radius",
         "scope",
         "soft_matte",
-        "despill",
-        "auto_refine",
-        "auto_refine_max_alpha_loss"
+        "despill"
       ],
       "properties": {
         "mode": { "enum": ["auto", "fixed"] },
@@ -123,9 +139,7 @@
         "edge_radius": { "type": "integer", "minimum": 0, "maximum": 16 },
         "scope": { "enum": ["all", "border-connected"] },
         "soft_matte": { "type": "boolean" },
-        "despill": { "type": "boolean" },
-        "auto_refine": { "type": "boolean" },
-        "auto_refine_max_alpha_loss": { "type": "number", "minimum": 0, "maximum": 0.2 }
+        "despill": { "type": "boolean" }
       },
       "additionalProperties": false
     },
@@ -189,8 +203,7 @@
         "variant_retry_limit",
         "outside_face_alpha_iou_warn_below",
         "outside_face_rgb_mean_warn_above",
-        "runtime_min_inside_changed_pixels",
-        "max_residual_key_edge_fraction"
+        "runtime_min_inside_changed_pixels"
       ],
       "properties": {
         "face_box": {
@@ -207,8 +220,7 @@
         "variant_retry_limit": { "type": "integer", "minimum": 0, "maximum": 3 },
         "outside_face_alpha_iou_warn_below": { "type": "number", "minimum": 0, "maximum": 1 },
         "outside_face_rgb_mean_warn_above": { "type": "number", "minimum": 0, "maximum": 255 },
-        "runtime_min_inside_changed_pixels": { "type": "integer", "minimum": 1 },
-        "max_residual_key_edge_fraction": { "type": "number", "minimum": 0, "maximum": 1 }
+        "runtime_min_inside_changed_pixels": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },

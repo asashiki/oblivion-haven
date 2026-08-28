@@ -153,6 +153,28 @@ def export_replacement_part(
     }
 
 
+def verify_eye_review(root: Path, record: dict, state: str) -> None:
+    value = record.get("eye_review")
+    expected_sha = record.get("eye_review_sha256")
+    if not value or not expected_sha:
+        raise SystemExit(f"眼睛素材 {state} 缺少对位与残影审核")
+    path = resolve(root, value)
+    if sha256(path) != expected_sha:
+        raise SystemExit(f"眼睛审核文件发生变化: {path}")
+    try:
+        review = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"无法读取眼睛审核 {path}: {exc}") from exc
+    if review.get("operation") != "eye-alignment-and-residue-review":
+        raise SystemExit(f"眼睛审核类型错误: {path}")
+    if review.get("status") != "pass" or review.get("state") != state:
+        raise SystemExit(f"眼睛素材 {state} 未通过对应审核")
+    if review.get("candidate_sha256") != record.get("candidate_sha256"):
+        raise SystemExit(f"眼睛素材 {state} 的候选图与审核不匹配")
+    if review.get("frame_sha256") != record.get("frame_sha256"):
+        raise SystemExit(f"眼睛素材 {state} 的最终帧与审核不匹配")
+
+
 def checkerboard(size: tuple[int, int], tile: int = 14) -> Image.Image:
     width, height = size
     yy, xx = np.indices((height, width))
@@ -454,6 +476,8 @@ def main() -> None:
             if sha256(frame) != record["frame_sha256"]:
                 raise SystemExit(f"运行时完整帧发生变化: {asset_id}")
             state = asset["state"]
+            if state in {"eyes_half", "eyes_close"}:
+                verify_eye_review(root, record, state)
             destination_name = f"{slug}_{runtime_id}_{STATE_SUFFIX[state]}.png"
             copy_png(frame, figures_dir / destination_name, canvas)
             resource_path = f"{slug}/{destination_name}"

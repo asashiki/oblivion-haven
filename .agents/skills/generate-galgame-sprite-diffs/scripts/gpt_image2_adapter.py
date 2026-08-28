@@ -57,7 +57,7 @@ def response_b64(result: object) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="用 gpt-image-2 生成或编辑一张色键源图；默认只供未来 API 项目复用"
+        description="用 gpt-image-2 生成或编辑 PNG；默认请求真实透明背景"
     )
     parser.add_argument("--prompt-file", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -66,11 +66,17 @@ def main() -> None:
     parser.add_argument("--model", default="gpt-image-2")
     parser.add_argument("--size", type=valid_size, default="1024x1536")
     parser.add_argument("--quality", choices=("low", "medium", "high", "auto"), default="high")
+    parser.add_argument(
+        "--background",
+        choices=("transparent", "opaque", "auto"),
+        default="transparent",
+        help="gpt-image-2 背景模式；立绘默认 transparent",
+    )
     parser.add_argument("--dry-run", action="store_true", help="只打印请求摘要，不联网")
     args = parser.parse_args()
 
     if args.out.suffix.lower() != ".png":
-        raise SystemExit("色键源图应保存为 .png")
+        raise SystemExit("图片应保存为 .png")
     if args.mask and not args.image:
         raise SystemExit("--mask 只能与至少一个 --image 一起使用")
     for path in [*args.image, *([args.mask] if args.mask else [])]:
@@ -104,10 +110,11 @@ def main() -> None:
         "mask": str(args.mask) if args.mask else None,
         "size": args.size,
         "quality": args.quality,
+        "background": args.background,
         "output": str(args.out),
         "notes": [
             "input_fidelity is intentionally omitted for gpt-image-2",
-            "transparent background is intentionally not requested; the prompt uses a chroma key",
+            "transparent background is requested explicitly by default and must still be validated after saving",
             "the provider result remains a candidate; local forced compositing is still required",
         ],
     }
@@ -128,6 +135,7 @@ def main() -> None:
         "prompt": prompt,
         "size": args.size,
         "quality": args.quality,
+        "background": args.background,
     }
     handles = []
     mask_handle = None
@@ -158,7 +166,23 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(base64.b64decode(response_b64(result)))
-    print(json.dumps({**summary, "status": "saved"}, ensure_ascii=False))
+    try:
+        with Image.open(args.out) as saved:
+            saved.load()
+            bands = saved.getbands()
+            extrema = saved.convert("RGBA").getchannel("A").getextrema()
+    except OSError as exc:
+        raise SystemExit(f"返回图片无法完整读取: {exc}") from exc
+    has_real_alpha = "A" in bands and extrema[0] < 255 and extrema[1] > 0
+    status = "saved" if args.background != "transparent" or has_real_alpha else "invalid-alpha"
+    print(
+        json.dumps(
+            {**summary, "status": status, "alpha_extrema": list(extrema), "has_real_alpha": has_real_alpha},
+            ensure_ascii=False,
+        )
+    )
+    if args.background == "transparent" and not has_real_alpha:
+        raise SystemExit("模型返回文件没有真实透明 alpha；禁止把预览棋盘或不透明图当作透明成果")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,13 @@
     "anchor": "bottom-center",
     "reference_pose": "A calm, plain, front-facing or nearly front-facing standard full-body model-reference stance, feet stable, arms relaxed, and both hands visible."
   },
+  "input_pipeline": {
+    "mode": "auto-alpha-first",
+    "opaque_source_action": "transparent-img2img",
+    "transparent_retry_limit": 1,
+    "allow_chroma_fallback": false,
+    "preserve_source_canvas_when_reusing_pose": true
+  },
   "pose_design": {
     "character_traits": [],
     "energy": 0.35,
@@ -47,9 +54,7 @@
     "edge_radius": 2,
     "scope": "all",
     "soft_matte": true,
-    "despill": true,
-    "auto_refine": true,
-    "auto_refine_max_alpha_loss": 0.025
+    "despill": true
   },
   "poses": [
     {
@@ -164,8 +169,8 @@
     "engine": "webgal-image",
     "mask_feather_px": 4,
     "states": {
-      "eyes_half": "Change only the two eyes into a natural half-closed eyelid state. Make it useful both as a blink transition preview and as a reusable half-lidded mood differential; it is not a WebGAL blink requirement.",
-      "eyes_close": "Change only the two eyes into a clean, natural fully closed blink frame. Preserve the existing eyebrows, mouth, face angle, and emotional intent.",
+      "eyes_half": "Change the two eyes and their eyebrows into one coherent natural half-closed blink state. Keep each eye's original inner and outer corner at the supplied exact anchors, keep the new lid midpoint inside the original eye aperture, and preserve the original inter-eye spacing, perspective, scale relationship, gaze, and emotional corner direction. Fully remove the original full-open upper/lower eye contours before redrawing the smaller aperture; leave no old upper-lash arc, remote black block, orphan lash tip, or faint duplicate outline. Move each eyebrow only subtly with the eyelid action while preserving its emotional direction; remove the old brow stroke wherever the new brow no longer overlaps. Reconstruct cleared skin from the exact local mother-frame palette and texture. Make the result useful both as a blink transition and a reusable half-lidded mood differential.",
+      "eyes_close": "Change the two eyes and their eyebrows into one coherent natural fully closed blink frame. Keep each eye's original inner and outer corner at the supplied exact anchors, keep the new closed-lid midpoint inside the original eye aperture, and preserve the original inter-eye spacing, perspective, scale relationship, gaze, and emotional corner direction. Fully remove the original irises, sclerae, upper/lower eye contours, lashes, antialiased shadows, and any old eyebrow pixels displaced by the blink before drawing exactly one new closed-lid curve per eye and subtly blink-adjusted eyebrows. Draw no eyelid crease, fold, highlight line, shadow line, second arc, remote black block, orphan lash tip, old/new eyebrow double image, or faint duplicate stroke. Reconstruct cleared skin from the exact local mother-frame hue, value, texture, and antialiasing; preserve the mouth, face angle, and emotional intent.",
       "mouth_half_open": "Change only the mouth into a modest half-open speaking frame. Preserve the expression and mouth-corner direction. Keep the opening restrained.",
       "mouth_open": "Change only the mouth into a speaking frame just one small step more open than mouth_half_open. Do not create a dramatically larger mouth, shout, scream, or exaggerated laugh."
     }
@@ -175,8 +180,7 @@
     "variant_retry_limit": 1,
     "outside_face_alpha_iou_warn_below": 0.92,
     "outside_face_rgb_mean_warn_above": 24.0,
-    "runtime_min_inside_changed_pixels": 8,
-    "max_residual_key_edge_fraction": 0.06
+    "runtime_min_inside_changed_pixels": 8
   },
   "workflow": {
     "pause_after_base": true,
@@ -192,12 +196,12 @@
   "output": {
     "work_dir": "work",
     "deliverables_dir": "deliverables",
-    "keep_chroma_sources": true,
+    "keep_chroma_sources": false,
     "keep_working_files": true,
     "keep_local_parts": true,
     "export_local_parts": true,
     "include_compositor_runtime": true,
-    "make_contact_sheet": true,
+    "make_contact_sheet": false,
     "make_demo_gifs": false
   }
 }
