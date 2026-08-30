@@ -1,0 +1,3 @@
+interface:
+  display_name: "Flowmusic Galgame BGM"
+  short_description: "Write restrained, loop-friendly Galgame BGM prompts for Flowmusic."
